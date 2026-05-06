@@ -73,6 +73,17 @@ The quality notebook checks:
 
 Check results are written to `quality_check_results`.
 
+## Local Validation
+
+The repository includes a small GitHub Actions workflow and standard-library unit tests:
+
+```bash
+python -m py_compile notebooks/*.py
+python -m unittest discover -s tests -v
+```
+
+These checks do not replace running the notebooks in Databricks. They catch basic syntax issues and sample-data contract drift before pushing changes.
+
 ## Interview Summary
 
 This project supports the following explanation:
