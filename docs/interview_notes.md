@@ -2,7 +2,7 @@
 
 ## Project Pitch
 
-I built a small Databricks Lakehouse project using synthetic construction equipment telemetry. The project follows a bronze, silver and gold architecture, with raw ingestion, typed and deduplicated transformations, validation checks, and BI-ready Delta tables for uptime, failure events, maintenance costs, parts usage and client asset summaries.
+I built a small, company-neutral Databricks Lakehouse project using synthetic construction equipment telemetry. The project follows a bronze, silver and gold architecture, with raw ingestion, typed and deduplicated transformations, validation checks, and BI-ready Delta tables for uptime, failure events, maintenance costs, parts usage and client asset summaries.
 
 ## Why This Is Relevant
 
@@ -24,6 +24,8 @@ The scenario mirrors common industrial data problems:
 ## Safe Boundaries
 
 This demo uses synthetic data only. It does not include internal company data, client names, production architecture, confidential screenshots, commercial costs or proprietary code.
+
+It can be discussed with different employers because the business scenario is generic industrial telemetry rather than a replica of any specific company's internal systems.
 
 ## Possible Talking Points
 

@@ -2,7 +2,7 @@
 
 Synthetic construction equipment telemetry project for demonstrating a Databricks Lakehouse workflow.
 
-The project is intentionally small and explainable. It shows how raw machine events can move through bronze, silver and gold Delta tables, with validation checks and SQL outputs suitable for reporting.
+The project is intentionally small, company-neutral and explainable. It shows how raw machine events can move through bronze, silver and gold Delta tables, with validation checks and SQL outputs suitable for reporting.
 
 ## Project Structure
 
@@ -30,6 +30,17 @@ databricks-lakehouse-demo/
 The sample data represents construction equipment telemetry and maintenance events. Each row is an operational event for a machine working at a site. The data includes machine status, fault codes, downtime, maintenance cost, fuel level, temperature, vibration and parts usage.
 
 This is a generic industrial analytics scenario. It does not use confidential, employer, client or production data.
+
+## Portfolio Positioning
+
+This repository is designed as a reusable portfolio project for data engineering, analytics engineering and lakehouse-focused roles. It avoids company-specific wording so it can be discussed with different employers as a general example of:
+
+- Databricks notebook development.
+- Medallion architecture.
+- Delta table modelling.
+- Data quality checks.
+- BI-ready gold outputs.
+- GitHub version control and CI validation.
 
 ## Lakehouse Layers
 
@@ -83,6 +94,16 @@ python -m unittest discover -s tests -v
 ```
 
 These checks do not replace running the notebooks in Databricks. They catch basic syntax issues and sample-data contract drift before pushing changes.
+
+## Development Process
+
+The commit history is intentionally kept readable:
+
+- Initial repo scaffold: sample data, Databricks notebooks, SQL and documentation.
+- Validation layer: GitHub Actions and local tests for notebook syntax and sample-data contracts.
+- Portfolio polish: company-neutral wording and reusable setup notes.
+
+This makes the project easier to review because someone looking at the repository can see both the final result and the engineering process used to build it.
 
 ## Interview Summary
 

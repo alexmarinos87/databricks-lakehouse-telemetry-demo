@@ -5,7 +5,7 @@
 Create the repository as private while building:
 
 ```text
-databricks-lakehouse-jcb-demo
+databricks-lakehouse-telemetry-demo
 ```
 
 Keep the repository synthetic and interview-safe:
