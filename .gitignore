@@ -1,0 +1,23 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Databricks / local scratch output
+.databricks/
+.ipynb_checkpoints/
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Data outputs generated while experimenting
+tmp/
+output/
+*.parquet/
+*.delta/
