@@ -51,7 +51,7 @@ This repository is designed as a reusable portfolio project for data engineering
 
 | Layer | Table | Purpose |
 | --- | --- | --- |
-| Bronze | `bronze_machine_events` | Raw CSV-shaped event records with ingestion metadata |
+| Bronze | `bronze_machine_events` | Auto Loader incremental ingest of raw CSV-shaped event records |
 | Silver | `silver_machine_events` | Typed, cleaned, deduplicated machine events |
 | Silver | `silver_quarantine_machine_events` | Invalid records excluded from trusted outputs |
 | Gold | `gold_machine_uptime` | Daily uptime, downtime and health by machine |
@@ -67,7 +67,8 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
 1. Create or open a Databricks workspace.
 2. Create a private GitHub repository and connect it using Databricks Git folders.
 3. Clone this repository into the Databricks workspace.
-4. Upload `data/sample_machine_events.csv` to `dbfs:/FileStore/lakehouse_demo/sample_machine_events.csv`.
+4. Upload `data/sample_machine_events.csv` to the Auto Loader landing directory:
+   `dbfs:/FileStore/lakehouse_demo/raw_machine_events/sample_machine_events.csv`.
 5. Run the notebooks in order:
    - `01_bronze_ingest.py`
    - `02_silver_transform.py`
@@ -105,7 +106,7 @@ These checks do not replace running the notebooks in Databricks. They catch basi
 The repository starts from a compact, reviewable baseline:
 
 - Synthetic sample data with an explicit schema contract.
-- Four Databricks notebooks covering bronze ingest, silver transform, gold models and quality checks.
+- Four Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models and quality checks.
 - Reporting SQL for Databricks SQL or notebook use.
 - Setup, architecture and interview notes.
 - GitHub Actions validation for notebook syntax and sample-data drift.
@@ -114,12 +115,12 @@ The repository starts from a compact, reviewable baseline:
 
 This project supports the following explanation:
 
-> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Delta tables, incremental ingestion concepts, validation checks, SQL outputs and a BI-ready gold layer. I version-controlled the work through GitHub to mirror proper engineering practice.
+> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs and a BI-ready gold layer. I version-controlled the work through GitHub to mirror proper engineering practice.
 
 ## Next Improvements
 
-- Convert the bronze ingest to Auto Loader for incremental cloud-file ingestion.
 - Add Delta Live Tables expectations.
 - Add workflow job configuration.
+- Move source, schema and checkpoint paths to Unity Catalog volumes.
 - Add Power BI or Databricks SQL dashboard screenshots using only synthetic data.
 - Add unit-style transformation tests with a small PySpark test harness.

@@ -5,7 +5,8 @@ This project demonstrates a compact Databricks Lakehouse pattern using synthetic
 ## Medallion Flow
 
 ```text
-CSV sample data
+CSV files in cloud storage
+  -> Auto Loader
   -> bronze_machine_events
   -> silver_machine_events
   -> gold_machine_uptime
@@ -17,12 +18,19 @@ CSV sample data
 
 ## Bronze
 
-`bronze_machine_events` stores the raw CSV-shaped records and adds ingestion metadata:
+`bronze_machine_events` is populated by Auto Loader from a cloud-file landing directory. The notebook uses `availableNow` so it can be run as a scheduled incremental batch: each run processes files available at start time and stops after the backlog is complete.
+
+The table stores the raw CSV-shaped records and adds ingestion metadata:
 
 - `_ingested_at`
 - `_source_file`
 
 The bronze layer is intentionally close to source so that downstream assumptions can be audited.
+
+Auto Loader state is stored outside the Delta table:
+
+- `checkpoint_path` tracks stream progress and processed files.
+- `schema_location` stores the Auto Loader schema metadata.
 
 ## Silver
 
