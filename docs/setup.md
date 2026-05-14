@@ -32,19 +32,28 @@ In Databricks:
 
 ## Sample Data
 
-The bronze notebook expects this default path:
+The bronze notebook uses Auto Loader and expects CSV files in this default landing directory:
 
 ```text
-dbfs:/FileStore/lakehouse_demo/sample_machine_events.csv
+dbfs:/FileStore/lakehouse_demo/raw_machine_events/
 ```
 
-Upload the local sample file there:
+Upload the local sample file so it lands at:
 
 ```text
-data/sample_machine_events.csv
+dbfs:/FileStore/lakehouse_demo/raw_machine_events/sample_machine_events.csv
 ```
 
-If you upload the file somewhere else, change the `source_path` widget in `01_bronze_ingest.py`.
+If you upload files somewhere else, change the `source_path` widget in `01_bronze_ingest.py`.
+
+The bronze notebook also uses these default Auto Loader state locations:
+
+```text
+dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events
+dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
+```
+
+Keep these paths persistent and unique to the bronze stream. Auto Loader uses the checkpoint to skip files it has already processed. To replay the same landing files from scratch, use a new checkpoint path or clear both the target bronze table and the checkpoint/schema paths.
 
 ## Run Order
 
@@ -60,6 +69,8 @@ Then run:
 ```text
 sql/gold_reporting_queries.sql
 ```
+
+The bronze notebook uses `availableNow`, so each run processes files available when the notebook starts and then stops. Later runs pick up newly arrived files from the same landing directory.
 
 ## Expected Result
 

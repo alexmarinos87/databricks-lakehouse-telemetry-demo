@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 01 - Bronze ingest
 # MAGIC
-# MAGIC Ingest raw construction equipment telemetry into a Delta bronze table.
+# MAGIC Incrementally ingest raw construction equipment telemetry into a Delta bronze table with Auto Loader.
 # MAGIC Bronze keeps the source-shaped records and adds lineage metadata.
 
 # COMMAND ----------
@@ -14,11 +14,15 @@ from pyspark.sql.types import StructField, StructType, StringType
 
 dbutils.widgets.text("catalog", "main")
 dbutils.widgets.text("schema", "lakehouse_demo")
-dbutils.widgets.text("source_path", "dbfs:/FileStore/lakehouse_demo/sample_machine_events.csv")
+dbutils.widgets.text("source_path", "dbfs:/FileStore/lakehouse_demo/raw_machine_events")
+dbutils.widgets.text("checkpoint_path", "dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events")
+dbutils.widgets.text("schema_location", "dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-source_path = dbutils.widgets.get("source_path")
+source_path = dbutils.widgets.get("source_path").rstrip("/")
+checkpoint_path = dbutils.widgets.get("checkpoint_path")
+schema_location = dbutils.widgets.get("schema_location")
 
 bronze_table = f"{catalog}.{schema}.bronze_machine_events"
 
@@ -53,8 +57,11 @@ raw_schema = StructType(
     ]
 )
 
-bronze_df = (
-    spark.read.format("csv")
+bronze_stream = (
+    spark.readStream.format("cloudFiles")
+    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.schemaLocation", schema_location)
+    .option("cloudFiles.includeExistingFiles", True)
     .option("header", True)
     .schema(raw_schema)
     .load(source_path)
@@ -64,15 +71,18 @@ bronze_df = (
 
 # COMMAND ----------
 
-(
-    bronze_df.write.format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", True)
-    .saveAsTable(bronze_table)
+query = (
+    bronze_stream.writeStream.format("delta")
+    .option("checkpointLocation", checkpoint_path)
+    .option("mergeSchema", True)
+    .trigger(availableNow=True)
+    .toTable(bronze_table)
 )
+
+query.awaitTermination()
 
 row_count = spark.table(bronze_table).count()
 if row_count == 0:
-    raise ValueError(f"No records were ingested from {source_path}")
+    raise ValueError(f"No records were ingested from files in {source_path}")
 
 display(spark.table(bronze_table))

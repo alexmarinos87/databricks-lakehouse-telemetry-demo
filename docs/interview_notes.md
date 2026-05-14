@@ -2,7 +2,7 @@
 
 ## Project Pitch
 
-I built a small, company-neutral Databricks Lakehouse project using synthetic construction equipment telemetry. The project follows a bronze, silver and gold architecture, with raw ingestion, typed and deduplicated transformations, validation checks, and BI-ready Delta tables for uptime, failure events, maintenance costs, parts usage and client asset summaries.
+I built a small, company-neutral Databricks Lakehouse project using synthetic construction equipment telemetry. The project follows a bronze, silver and gold architecture, with Auto Loader-based raw ingestion, typed and deduplicated transformations, validation checks, and BI-ready Delta tables for uptime, failure events, maintenance costs, parts usage and client asset summaries.
 
 ## Why This Is Relevant
 
@@ -15,7 +15,7 @@ The scenario mirrors common industrial data problems:
 
 ## What I Would Emphasize
 
-- Bronze preserves source-shaped records with lineage metadata.
+- Bronze uses Auto Loader to incrementally ingest new CSV files while preserving source-shaped records with lineage metadata.
 - Silver applies data quality rules, typing and deduplication.
 - Gold translates engineering data into reporting views.
 - Delta tables provide reliable managed storage for analytics.
@@ -29,7 +29,7 @@ It can be discussed with different employers because the business scenario is ge
 
 ## Possible Talking Points
 
-- How the pipeline would change for Auto Loader and cloud object storage.
+- How Auto Loader checkpoints support incremental cloud-file ingestion.
 - How Unity Catalog could govern access to tables and schemas.
 - How expectations could be extended with a framework such as DLT expectations or Great Expectations.
 - How gold tables could feed Power BI dashboards or Databricks SQL dashboards.
