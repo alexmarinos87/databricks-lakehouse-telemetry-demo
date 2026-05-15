@@ -11,7 +11,7 @@ The scenario mirrors common industrial data problems:
 - Equipment sends operational events from different sites.
 - Raw data needs quality checks before it can be trusted.
 - Business users need simple aggregate outputs, not raw event streams.
-- Engineering work should be version controlled and reproducible.
+- Engineering work should be version controlled, deployable and reproducible.
 
 ## What I Would Emphasize
 
@@ -19,6 +19,7 @@ The scenario mirrors common industrial data problems:
 - Silver applies data quality rules, typing and deduplication.
 - Gold translates engineering data into reporting views.
 - Delta tables provide reliable managed storage for analytics.
+- The Databricks bundle defines a repeatable workflow job for orchestration.
 - GitHub version control makes the work reviewable and maintainable.
 
 ## Safe Boundaries

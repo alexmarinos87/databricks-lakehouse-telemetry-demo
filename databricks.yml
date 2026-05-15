@@ -1,0 +1,43 @@
+bundle:
+  name: databricks_lakehouse_demo
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog used by the notebooks.
+    default: main
+  schema:
+    description: Schema used by the lakehouse demo tables.
+    default: lakehouse_demo
+  source_path:
+    description: Auto Loader source directory for raw machine event CSV files.
+    default: dbfs:/FileStore/lakehouse_demo/raw_machine_events
+  checkpoint_path:
+    description: Auto Loader checkpoint path for the bronze ingest task.
+    default: dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events
+  schema_location:
+    description: Auto Loader schema metadata path for the bronze ingest task.
+    default: dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
+  spark_version:
+    description: Databricks Runtime version for the shared job cluster.
+    default: 15.4.x-scala2.12
+  node_type_id:
+    description: Workspace-specific node type for the shared job cluster.
+    default: i3.xlarge
+  schedule_pause_status:
+    description: Workflow schedule state. Use UNPAUSED after validating the job in your workspace.
+    default: PAUSED
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

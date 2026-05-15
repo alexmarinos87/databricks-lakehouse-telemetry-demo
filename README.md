@@ -9,6 +9,7 @@ The project is intentionally small, company-neutral and explainable. It shows ho
 ```text
 databricks-lakehouse-demo/
 ├── README.md
+├── databricks.yml
 ├── notebooks/
 │   ├── 01_bronze_ingest.py
 │   ├── 02_silver_transform.py
@@ -22,6 +23,8 @@ databricks-lakehouse-demo/
 │   ├── architecture.md
 │   ├── interview_notes.md
 │   └── setup.md
+├── resources/
+│   └── lakehouse_workflow.yml
 ├── tests/
 │   └── test_sample_data_contract.py
 ├── .github/
@@ -78,6 +81,23 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
 
 The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the notebook widgets if your workspace uses a different catalog or schema.
 
+## Workflow Job
+
+The repository includes a Databricks bundle workflow configuration:
+
+- `databricks.yml` defines bundle variables, deployment targets and default paths.
+- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with four dependent notebook tasks:
+  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks`.
+
+The workflow schedule is paused by default. After authenticating the Databricks CLI, validate, deploy and run the workflow from the repository root:
+
+```bash
+databricks auth login --host <workspace-url>
+databricks bundle validate -t dev
+databricks bundle deploy -t dev
+databricks bundle run -t dev lakehouse_demo_workflow
+```
+
 ## Data Quality Checks
 
 The quality notebook checks:
@@ -107,6 +127,7 @@ The repository starts from a compact, reviewable baseline:
 
 - Synthetic sample data with an explicit schema contract.
 - Four Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models and quality checks.
+- Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
 - Reporting SQL for Databricks SQL or notebook use.
 - Setup, architecture and interview notes.
 - GitHub Actions validation for notebook syntax and sample-data drift.
@@ -115,12 +136,11 @@ The repository starts from a compact, reviewable baseline:
 
 This project supports the following explanation:
 
-> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs and a BI-ready gold layer. I version-controlled the work through GitHub to mirror proper engineering practice.
+> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
 
 ## Next Improvements
 
 - Add Delta Live Tables expectations.
-- Add workflow job configuration.
 - Move source, schema and checkpoint paths to Unity Catalog volumes.
 - Add Power BI or Databricks SQL dashboard screenshots using only synthetic data.
 - Add unit-style transformation tests with a small PySpark test harness.

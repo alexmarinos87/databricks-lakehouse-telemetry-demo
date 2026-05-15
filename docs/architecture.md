@@ -66,3 +66,14 @@ The `04_quality_checks.py` notebook validates:
 - Gold tables contain rows.
 
 The results are stored in `quality_check_results`, giving a simple audit surface for the pipeline.
+
+## Workflow Orchestration
+
+The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with four sequential tasks:
+
+1. `bronze_ingest`
+2. `silver_transform`
+3. `gold_models`
+4. `quality_checks`
+
+The workflow uses a shared job cluster and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths.
