@@ -46,6 +46,33 @@ def add_result(check_name, status, detail, severity="error"):
     )
 
 
+def add_uniqueness_check(df, check_name, table_label, key_columns, severity="error"):
+    duplicate_keys = df.groupBy(*key_columns).count().where(F.col("count") > 1)
+    duplicate_summary = duplicate_keys.agg(
+        F.count(F.lit(1)).alias("duplicate_key_count"),
+        F.coalesce(F.sum("count"), F.lit(0)).alias("duplicate_row_count"),
+    ).collect()[0]
+
+    duplicate_key_count = duplicate_summary["duplicate_key_count"]
+    duplicate_row_count = duplicate_summary["duplicate_row_count"]
+    key_label = ", ".join(key_columns)
+
+    if duplicate_key_count == 0:
+        add_result(
+            check_name,
+            "pass",
+            f"{table_label} has unique {key_label} values",
+            severity,
+        )
+    else:
+        add_result(
+            check_name,
+            "fail",
+            f"{table_label} has {duplicate_key_count} duplicated {key_label} values across {duplicate_row_count} rows",
+            severity,
+        )
+
+
 for logical_name, table_name in tables.items():
     try:
         count = spark.table(table_name).count()
@@ -55,16 +82,11 @@ for logical_name, table_name in tables.items():
 
 silver = spark.table(tables["silver"])
 
-duplicate_events = (
-    silver.groupBy("event_id")
-    .count()
-    .where(F.col("count") > 1)
-    .count()
-)
-add_result(
+add_uniqueness_check(
+    silver,
     "silver_event_id_unique",
-    "pass" if duplicate_events == 0 else "fail",
-    f"{duplicate_events} duplicated event_id values found in silver",
+    "silver_machine_events",
+    ["event_id"],
 )
 
 required_nulls = silver.where(
