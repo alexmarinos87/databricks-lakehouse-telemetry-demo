@@ -73,6 +73,41 @@ def add_uniqueness_check(df, check_name, table_label, key_columns, severity="err
         )
 
 
+def add_required_fields_check(df, check_name, table_label, required_columns, severity="error"):
+    missing_row_condition = F.lit(False)
+    missing_count_expressions = []
+
+    for column_name in required_columns:
+        missing_condition = F.col(column_name).isNull() | (F.length(F.trim(F.col(column_name).cast("string"))) == 0)
+        missing_row_condition = missing_row_condition | missing_condition
+        missing_count_expressions.append(
+            F.coalesce(F.sum(F.when(missing_condition, F.lit(1)).otherwise(F.lit(0))), F.lit(0)).alias(column_name)
+        )
+
+    missing_rows = df.where(missing_row_condition).count()
+    missing_counts = df.agg(*missing_count_expressions).collect()[0].asDict()
+    missing_detail = ", ".join(
+        f"{column_name}={missing_counts[column_name]}"
+        for column_name in required_columns
+        if missing_counts[column_name] > 0
+    )
+
+    if missing_rows == 0:
+        add_result(
+            check_name,
+            "pass",
+            f"{table_label} has populated required fields: {', '.join(required_columns)}",
+            severity,
+        )
+    else:
+        add_result(
+            check_name,
+            "fail",
+            f"{table_label} has {missing_rows} rows with missing required fields ({missing_detail})",
+            severity,
+        )
+
+
 for logical_name, table_name in tables.items():
     try:
         count = spark.table(table_name).count()
@@ -89,17 +124,11 @@ add_uniqueness_check(
     ["event_id"],
 )
 
-required_nulls = silver.where(
-    F.col("event_id").isNull()
-    | F.col("machine_id").isNull()
-    | F.col("event_ts_utc").isNull()
-    | F.col("site_id").isNull()
-    | F.col("client_id").isNull()
-).count()
-add_result(
+add_required_fields_check(
+    silver,
     "silver_required_fields_present",
-    "pass" if required_nulls == 0 else "fail",
-    f"{required_nulls} silver rows have missing required fields",
+    "silver_machine_events",
+    ["event_id", "machine_id", "event_ts_utc", "site_id", "client_id"],
 )
 
 negative_metrics = silver.where(
