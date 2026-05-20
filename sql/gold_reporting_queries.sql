@@ -88,3 +88,16 @@ ORDER BY
     ELSE 3
   END,
   q.check_name;
+
+-- Recent quality check run history for monitoring trends
+SELECT
+  checked_at,
+  check_count,
+  passed_check_count,
+  failed_check_count,
+  failed_error_check_count,
+  failed_warning_check_count,
+  all_error_checks_passed
+FROM main.lakehouse_demo.quality_metric_history
+ORDER BY checked_at DESC
+LIMIT 30;

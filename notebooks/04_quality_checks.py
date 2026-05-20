@@ -29,6 +29,7 @@ tables = {
 }
 
 quality_table = f"{catalog}.{schema}.quality_check_results"
+quality_history_table = f"{catalog}.{schema}.quality_metric_history"
 
 # COMMAND ----------
 
@@ -173,6 +174,48 @@ results_df = (
     .mode("overwrite")
     .option("overwriteSchema", True)
     .saveAsTable(quality_table)
+)
+
+quality_history_df = (
+    results_df.groupBy("checked_at")
+    .agg(
+        F.count(F.lit(1)).alias("check_count"),
+        F.sum(F.when(F.col("status") == "pass", F.lit(1)).otherwise(F.lit(0))).alias(
+            "passed_check_count"
+        ),
+        F.sum(F.when(F.col("status") == "fail", F.lit(1)).otherwise(F.lit(0))).alias(
+            "failed_check_count"
+        ),
+        F.sum(
+            F.when(
+                (F.col("status") == "fail") & (F.col("severity") == "error"),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        ).alias("failed_error_check_count"),
+        F.sum(
+            F.when(
+                (F.col("status") == "fail") & (F.col("severity") != "error"),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        ).alias("failed_warning_check_count"),
+    )
+    .withColumn("all_error_checks_passed", F.col("failed_error_check_count") == 0)
+    .select(
+        "checked_at",
+        "check_count",
+        "passed_check_count",
+        "failed_check_count",
+        "failed_error_check_count",
+        "failed_warning_check_count",
+        "all_error_checks_passed",
+    )
+)
+
+(
+    quality_history_df.write.format("delta")
+    .mode("append")
+    .option("mergeSchema", True)
+    .saveAsTable(quality_history_table)
 )
 
 display(results_df.orderBy("status", "check_name"))
