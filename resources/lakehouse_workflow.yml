@@ -25,6 +25,15 @@ resources:
               source_path: ${var.source_path}
               checkpoint_path: ${var.checkpoint_path}
               schema_location: ${var.schema_location}
+              azure_storage_account: ${var.azure_storage_account}
+              azure_container: ${var.azure_container}
+              azure_source_path: ${var.azure_source_path}
+              azure_checkpoint_path: ${var.azure_checkpoint_path}
+              azure_schema_location: ${var.azure_schema_location}
+              azure_tenant_id: ${var.azure_tenant_id}
+              azure_client_id: ${var.azure_client_id}
+              azure_client_secret_scope: ${var.azure_client_secret_scope}
+              azure_client_secret_key: ${var.azure_client_secret_key}
 
         - task_key: silver_transform
           depends_on:

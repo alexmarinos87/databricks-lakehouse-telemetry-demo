@@ -1,0 +1,4 @@
+event_id,machine_id,event_ts,site_id,client_id,model,hour_meter,event_type,status,fault_code,severity,temperature_c,vibration_mm_s,fuel_level_pct,duration_minutes,downtime_minutes,maintenance_cost_gbp,part_code,part_quantity,operator_shift
+E0028,MCH-1002,2026-04-03T06:00:00Z,SITE-NORTH,CLIENT-A,Excavator,2211.4,telemetry,RUNNING,OK,none,80.9,3.9,57,60,0,0,NONE,0,day
+E0029,MCH-1006,2026-04-03T06:00:00Z,SITE-WEST,CLIENT-C,Skid Steer,110.2,telemetry,RUNNING,OK,none,68.4,2.2,91,60,0,0,NONE,0,day
+E0030,MCH-1006,2026-04-03T07:00:00Z,SITE-WEST,CLIENT-C,Skid Steer,110.6,alert,FAULT,COOLANT_TEMP_HIGH,high,97.5,5.8,88,20,40,410,COOLANT-HOSE-03,1,day
