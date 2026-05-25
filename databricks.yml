@@ -20,6 +20,33 @@ variables:
   schema_location:
     description: Auto Loader schema metadata path for the bronze ingest task.
     default: dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
+  azure_storage_account:
+    description: Optional Azure Data Lake Storage Gen2 account for bronze ingestion.
+    default: ""
+  azure_container:
+    description: Optional Azure Data Lake Storage Gen2 container for bronze ingestion.
+    default: ""
+  azure_source_path:
+    description: ADLS path under the container for raw machine event CSV files.
+    default: lakehouse_demo/raw_machine_events
+  azure_checkpoint_path:
+    description: ADLS path under the container for Auto Loader checkpoint state.
+    default: lakehouse_demo/_checkpoints/bronze_machine_events
+  azure_schema_location:
+    description: ADLS path under the container for Auto Loader schema metadata.
+    default: lakehouse_demo/_schemas/bronze_machine_events
+  azure_tenant_id:
+    description: Optional Microsoft Entra tenant ID for service-principal ADLS access.
+    default: ""
+  azure_client_id:
+    description: Optional service-principal client ID for ADLS access.
+    default: ""
+  azure_client_secret_scope:
+    description: Optional Databricks secret scope holding the ADLS service-principal secret.
+    default: ""
+  azure_client_secret_key:
+    description: Optional Databricks secret key holding the ADLS service-principal secret.
+    default: ""
   spark_version:
     description: Databricks Runtime version for the shared job cluster.
     default: 15.4.x-scala2.12

@@ -55,6 +55,41 @@ dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
 
 Keep these paths persistent and unique to the bronze stream. Auto Loader uses the checkpoint to skip files it has already processed. To replay the same landing files from scratch, use a new checkpoint path or clear both the target bronze table and the checkpoint/schema paths.
 
+## Azure ADLS Ingestion
+
+The same bronze notebook can read from Azure Data Lake Storage Gen2 by setting the bundle variables below. When `azure_storage_account` and `azure_container` are set, the notebook resolves paths as:
+
+```text
+abfss://<azure_container>@<azure_storage_account>.dfs.core.windows.net/<azure_source_path>
+```
+
+Minimum Azure path variables:
+
+```bash
+databricks bundle run -t dev \
+  --var="azure_storage_account=<storage-account>" \
+  --var="azure_container=<container>" \
+  --var="azure_source_path=lakehouse_demo/raw_machine_events" \
+  lakehouse_demo_workflow
+```
+
+If the workspace already uses Unity Catalog external locations or a cluster identity with access to the ADLS path, no secret variables are required. For service-principal OAuth, store the client secret in a Databricks secret scope and also set:
+
+```bash
+--var="azure_tenant_id=<tenant-id>"
+--var="azure_client_id=<client-id>"
+--var="azure_client_secret_scope=<secret-scope>"
+--var="azure_client_secret_key=<secret-key>"
+```
+
+The sample increment file is:
+
+```text
+data/increments/machine_events_increment_2026_04_03.csv
+```
+
+Drop it into the same DBFS or ADLS landing directory after the first run to validate that Auto Loader picks up only the new file on the next run.
+
 ## Run Order
 
 Run these notebooks in order:

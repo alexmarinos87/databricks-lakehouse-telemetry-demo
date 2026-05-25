@@ -7,8 +7,45 @@
 
 # COMMAND ----------
 
+import sys
+from pathlib import Path, PurePosixPath
+
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructField, StructType, StringType
+
+
+def _add_project_src_to_path():
+    cwd = Path.cwd()
+    for base_path in [cwd, *cwd.parents]:
+        src_path = base_path / "src"
+        if src_path.exists():
+            sys.path.insert(0, str(src_path))
+            return
+
+    try:
+        notebook_path = (
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .notebookPath()
+            .get()
+        )
+        workspace_root = PurePosixPath(notebook_path).parent.parent
+        workspace_root_text = str(workspace_root)
+        if not workspace_root_text.startswith("/Workspace/"):
+            workspace_root_text = str(Path("/Workspace") / workspace_root_text.lstrip("/"))
+        sys.path.insert(0, str(Path(workspace_root_text) / "src"))
+    except Exception:
+        return
+
+
+_add_project_src_to_path()
+
+from lakehouse_demo.azure_ingestion import (  # noqa: E402
+    AzureIngestionConfig,
+    build_adls_oauth_conf,
+    resolve_ingestion_paths,
+)
 
 # COMMAND ----------
 
@@ -17,12 +54,48 @@ dbutils.widgets.text("schema", "lakehouse_demo")
 dbutils.widgets.text("source_path", "dbfs:/FileStore/lakehouse_demo/raw_machine_events")
 dbutils.widgets.text("checkpoint_path", "dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events")
 dbutils.widgets.text("schema_location", "dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events")
+dbutils.widgets.text("azure_storage_account", "")
+dbutils.widgets.text("azure_container", "")
+dbutils.widgets.text("azure_source_path", "lakehouse_demo/raw_machine_events")
+dbutils.widgets.text("azure_checkpoint_path", "lakehouse_demo/_checkpoints/bronze_machine_events")
+dbutils.widgets.text("azure_schema_location", "lakehouse_demo/_schemas/bronze_machine_events")
+dbutils.widgets.text("azure_tenant_id", "")
+dbutils.widgets.text("azure_client_id", "")
+dbutils.widgets.text("azure_client_secret_scope", "")
+dbutils.widgets.text("azure_client_secret_key", "")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-source_path = dbutils.widgets.get("source_path").rstrip("/")
-checkpoint_path = dbutils.widgets.get("checkpoint_path")
-schema_location = dbutils.widgets.get("schema_location")
+
+azure_client_secret_scope = dbutils.widgets.get("azure_client_secret_scope").strip()
+azure_client_secret_key = dbutils.widgets.get("azure_client_secret_key").strip()
+azure_client_secret = ""
+if azure_client_secret_scope or azure_client_secret_key:
+    if not azure_client_secret_scope or not azure_client_secret_key:
+        raise ValueError("Both azure_client_secret_scope and azure_client_secret_key are required together")
+    azure_client_secret = dbutils.secrets.get(scope=azure_client_secret_scope, key=azure_client_secret_key)
+
+ingestion_config = AzureIngestionConfig(
+    source_path=dbutils.widgets.get("source_path"),
+    checkpoint_path=dbutils.widgets.get("checkpoint_path"),
+    schema_location=dbutils.widgets.get("schema_location"),
+    azure_storage_account=dbutils.widgets.get("azure_storage_account"),
+    azure_container=dbutils.widgets.get("azure_container"),
+    azure_source_path=dbutils.widgets.get("azure_source_path"),
+    azure_checkpoint_path=dbutils.widgets.get("azure_checkpoint_path"),
+    azure_schema_location=dbutils.widgets.get("azure_schema_location"),
+    azure_tenant_id=dbutils.widgets.get("azure_tenant_id"),
+    azure_client_id=dbutils.widgets.get("azure_client_id"),
+    azure_client_secret=azure_client_secret,
+)
+ingestion_paths = resolve_ingestion_paths(ingestion_config)
+
+for conf_key, conf_value in build_adls_oauth_conf(ingestion_config).items():
+    spark.conf.set(conf_key, conf_value)
+
+source_path = ingestion_paths.source_path.rstrip("/")
+checkpoint_path = ingestion_paths.checkpoint_path
+schema_location = ingestion_paths.schema_location
 
 bronze_table = f"{catalog}.{schema}.bronze_machine_events"
 
