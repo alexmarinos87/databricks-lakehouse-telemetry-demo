@@ -14,7 +14,8 @@ databricks-lakehouse-demo/
 │   ├── 01_bronze_ingest.py
 │   ├── 02_silver_transform.py
 │   ├── 03_gold_models.py
-│   └── 04_quality_checks.py
+│   ├── 04_quality_checks.py
+│   └── 05_forecast_validation.py
 ├── sql/
 │   └── gold_reporting_queries.sql
 ├── data/
@@ -62,6 +63,8 @@ This repository is designed as a reusable portfolio project for data engineering
 | Gold | `gold_maintenance_costs` | Maintenance cost and downtime aggregates |
 | Gold | `gold_parts_usage` | Parts usage by date, site, model and part |
 | Gold | `gold_client_asset_summary` | Client-facing asset performance summary |
+| Forecast | `gold_downtime_forecast_validation` | Rolling-baseline backtest results with forecast errors |
+| Forecast | `gold_downtime_forecast` | Next-horizon downtime forecast with validation status and interval bounds |
 
 ## How To Run In Databricks
 
@@ -77,6 +80,7 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
    - `02_silver_transform.py`
    - `03_gold_models.py`
    - `04_quality_checks.py`
+   - `05_forecast_validation.py`
 6. Run the SQL in `sql/gold_reporting_queries.sql` in Databricks SQL or a SQL notebook.
 
 The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the notebook widgets if your workspace uses a different catalog or schema.
@@ -86,8 +90,8 @@ The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the 
 The repository includes a Databricks bundle workflow configuration:
 
 - `databricks.yml` defines bundle variables, deployment targets and default paths.
-- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with four dependent notebook tasks:
-  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks`.
+- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with five dependent notebook tasks:
+  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks` -> `forecast_validation`.
 
 The workflow schedule is paused by default. After authenticating the Databricks CLI, validate, deploy and run the workflow from the repository root:
 
@@ -110,6 +114,10 @@ The quality notebook checks:
 
 Check results are written to `quality_check_results`.
 
+## Forecast Validation
+
+`05_forecast_validation.py` demonstrates that pattern with a transparent rolling-mean downtime baseline. It writes backtest rows to `gold_downtime_forecast_validation` and next-horizon forecast rows to `gold_downtime_forecast`, including error metrics, interval bounds, backtest interval coverage and a `forecast_status` flag.
+
 ## Local Validation
 
 The repository includes a small GitHub Actions workflow and standard-library unit tests:
@@ -126,9 +134,10 @@ These checks do not replace running the notebooks in Databricks. They catch basi
 The repository starts from a compact, reviewable baseline:
 
 - Synthetic sample data with an explicit schema contract.
-- Four Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models and quality checks.
+- Five Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks and forecast validation.
 - Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
 - Reporting SQL for Databricks SQL or notebook use.
+- Transparent forecast validation outputs for client-safe BI narratives.
 - Setup, architecture and interview notes.
 - GitHub Actions validation for notebook syntax and sample-data drift.
 
@@ -136,7 +145,7 @@ The repository starts from a compact, reviewable baseline:
 
 This project supports the following explanation:
 
-> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
+> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer, transparent forecast validation and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
 
 ## Next Improvements
 

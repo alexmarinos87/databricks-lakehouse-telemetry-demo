@@ -98,6 +98,7 @@ Run these notebooks in order:
 2. `notebooks/02_silver_transform.py`
 3. `notebooks/03_gold_models.py`
 4. `notebooks/04_quality_checks.py`
+5. `notebooks/05_forecast_validation.py`
 
 Then run:
 
@@ -150,3 +151,6 @@ After a successful run, the schema contains:
 - `gold_parts_usage`
 - `gold_client_asset_summary`
 - `quality_check_results`
+- `quality_metric_history`
+- `gold_downtime_forecast_validation`
+- `gold_downtime_forecast`

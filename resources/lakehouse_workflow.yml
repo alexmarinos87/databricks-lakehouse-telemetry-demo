@@ -2,7 +2,7 @@ resources:
   jobs:
     lakehouse_demo_workflow:
       name: ${bundle.target}-lakehouse-demo-workflow
-      description: Runs the Databricks Lakehouse demo notebooks from bronze ingest through quality checks.
+      description: Runs the Databricks Lakehouse demo notebooks from bronze ingest through forecast validation.
       max_concurrent_runs: 1
       schedule:
         quartz_cron_expression: 0 0 7 * * ?
@@ -64,3 +64,16 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+
+        - task_key: forecast_validation
+          depends_on:
+            - task_key: quality_checks
+          job_cluster_key: lakehouse_demo_cluster
+          notebook_task:
+            notebook_path: ../notebooks/05_forecast_validation.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              baseline_window_days: ${var.baseline_window_days}
+              forecast_horizon_days: ${var.forecast_horizon_days}
+              min_validation_observations: ${var.min_validation_observations}
