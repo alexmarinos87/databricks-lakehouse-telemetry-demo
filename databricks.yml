@@ -47,6 +47,15 @@ variables:
   azure_client_secret_key:
     description: Optional Databricks secret key holding the ADLS service-principal secret.
     default: ""
+  baseline_window_days:
+    description: Number of recent daily observations used by the downtime forecast baseline.
+    default: "2"
+  forecast_horizon_days:
+    description: Number of days ahead produced by the downtime forecast task.
+    default: "1"
+  min_validation_observations:
+    description: Minimum backtest rows required before a forecast segment is marked validated.
+    default: "2"
   spark_version:
     description: Databricks Runtime version for the shared job cluster.
     default: 15.4.x-scala2.12

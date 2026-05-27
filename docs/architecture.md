@@ -14,6 +14,8 @@ CSV files in cloud storage
   -> gold_maintenance_costs
   -> gold_parts_usage
   -> gold_client_asset_summary
+  -> gold_downtime_forecast_validation
+  -> gold_downtime_forecast
 ```
 
 ## Bronze
@@ -55,6 +57,17 @@ The gold layer provides BI-ready outputs:
 - `gold_parts_usage`: part demand by date, site and model.
 - `gold_client_asset_summary`: client-facing asset reliability summary.
 
+## Forecast Validation
+
+`05_forecast_validation.py` adds a transparent baseline forecasting layer on top of `gold_machine_uptime`.
+
+The notebook creates:
+
+- `gold_downtime_forecast_validation`: historical rolling-baseline predictions with actual downtime, forecast error fields and interval coverage flags.
+- `gold_downtime_forecast`: next-horizon downtime forecasts with validation metrics, interval bounds, backtest interval coverage and a readiness status.
+
+The baseline uses recent daily downtime by site, client and model. It is intentionally simple so that BI users can see the assumptions and error profile before using forecast output in client-facing narratives.
+
 ## Governance And Quality
 
 The `04_quality_checks.py` notebook validates:
@@ -69,11 +82,12 @@ The results are stored in `quality_check_results`, giving a simple audit surface
 
 ## Workflow Orchestration
 
-The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with four sequential tasks:
+The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with five sequential tasks:
 
 1. `bronze_ingest`
 2. `silver_transform`
 3. `gold_models`
 4. `quality_checks`
+5. `forecast_validation`
 
-The workflow uses a shared job cluster and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths.
+The workflow uses a shared job cluster and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings.

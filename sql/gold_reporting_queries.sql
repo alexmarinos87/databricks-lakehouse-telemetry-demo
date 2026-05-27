@@ -66,6 +66,47 @@ SELECT
 FROM main.lakehouse_demo.gold_client_asset_summary
 ORDER BY client_id, site_id, failure_related_cost_gbp DESC;
 
+-- Validated downtime forecast for the next service period
+SELECT
+  forecast_date,
+  site_id,
+  client_id,
+  model,
+  machine_count,
+  forecast_downtime_minutes,
+  prediction_interval_lower_minutes,
+  prediction_interval_upper_minutes,
+  validation_observation_count,
+  mae_downtime_minutes,
+  rmse_downtime_minutes,
+  backtest_interval_coverage_pct,
+  forecast_status
+FROM main.lakehouse_demo.gold_downtime_forecast
+ORDER BY
+  CASE forecast_status
+    WHEN 'validated_baseline' THEN 1
+    ELSE 2
+  END,
+  forecast_downtime_minutes DESC;
+
+-- Downtime forecast backtest performance
+SELECT
+  site_id,
+  client_id,
+  model,
+  COUNT(*) AS validation_observation_count,
+  ROUND(AVG(absolute_error_minutes), 2) AS mae_downtime_minutes,
+  ROUND(SQRT(AVG(squared_error_minutes)), 2) AS rmse_downtime_minutes,
+  ROUND(AVG(absolute_percentage_error) * 100, 2) AS mape_pct,
+  ROUND(
+    AVG(CASE WHEN covered_by_validation_interval THEN 1.0 ELSE 0.0 END) * 100,
+    2
+  ) AS backtest_interval_coverage_pct,
+  MAX(event_date) AS latest_validation_date
+FROM main.lakehouse_demo.gold_downtime_forecast_validation
+GROUP BY site_id, client_id, model
+ORDER BY mae_downtime_minutes DESC, site_id, model;
+
 -- Latest failed quality checks for pipeline monitoring
 WITH latest_quality_run AS (
   SELECT MAX(checked_at) AS checked_at
