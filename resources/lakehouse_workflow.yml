@@ -2,7 +2,7 @@ resources:
   jobs:
     lakehouse_demo_workflow:
       name: ${bundle.target}-lakehouse-demo-workflow
-      description: Runs the Databricks Lakehouse demo notebooks from bronze ingest through forecast validation.
+      description: Runs the Databricks Lakehouse demo from bronze ingest through declarative quality expectations.
       max_concurrent_runs: 1
       schedule:
         quartz_cron_expression: 0 0 7 * * ?
@@ -77,3 +77,9 @@ resources:
               baseline_window_days: ${var.baseline_window_days}
               forecast_horizon_days: ${var.forecast_horizon_days}
               min_validation_observations: ${var.min_validation_observations}
+
+        - task_key: quality_expectations_pipeline
+          depends_on:
+            - task_key: forecast_validation
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse_quality_expectations.id}

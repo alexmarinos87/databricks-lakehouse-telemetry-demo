@@ -1,0 +1,25 @@
+resources:
+  pipelines:
+    lakehouse_quality_expectations:
+      name: ${bundle.target}-lakehouse-quality-expectations
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      development: true
+      continuous: false
+      channel: CURRENT
+      edition: CORE
+      photon: false
+      clusters:
+        - label: default
+          num_workers: 1
+          node_type_id: ${var.node_type_id}
+      libraries:
+        - notebook:
+            path: ../notebooks/06_lakeflow_quality_expectations.py
+      configuration:
+        lakehouse_demo.catalog: ${var.catalog}
+        lakehouse_demo.schema: ${var.schema}
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema}
+        name: quality_expectation_event_log
