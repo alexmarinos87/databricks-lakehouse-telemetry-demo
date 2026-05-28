@@ -16,6 +16,8 @@ CSV files in cloud storage
   -> gold_client_asset_summary
   -> gold_downtime_forecast_validation
   -> gold_downtime_forecast
+  -> quality_expectation_* materialized views
+  -> quality_expectation_event_log
 ```
 
 ## Bronze
@@ -80,14 +82,23 @@ The `04_quality_checks.py` notebook validates:
 
 The results are stored in `quality_check_results`, giving a simple audit surface for the pipeline.
 
+`06_lakeflow_quality_expectations.py` adds declarative expectations over selected trusted outputs:
+
+- `quality_expectation_silver_machine_events`: required keys, metric ranges and health-score bounds.
+- `quality_expectation_gold_machine_uptime`: uptime, downtime and observed-minute checks.
+- `quality_expectation_downtime_forecast`: forecast interval, validation-count and status checks.
+
+The Lakeflow pipeline writes expectation metrics to `quality_expectation_event_log`, which gives a managed event stream for monitoring expectation pass and fail counts.
+
 ## Workflow Orchestration
 
-The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with five sequential tasks:
+The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with six sequential tasks:
 
 1. `bronze_ingest`
 2. `silver_transform`
 3. `gold_models`
 4. `quality_checks`
 5. `forecast_validation`
+6. `quality_expectations_pipeline`
 
-The workflow uses a shared job cluster and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings.
+The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings. The final task refreshes the Lakeflow quality-expectations pipeline.

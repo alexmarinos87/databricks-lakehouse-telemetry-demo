@@ -15,7 +15,8 @@ databricks-lakehouse-demo/
 │   ├── 02_silver_transform.py
 │   ├── 03_gold_models.py
 │   ├── 04_quality_checks.py
-│   └── 05_forecast_validation.py
+│   ├── 05_forecast_validation.py
+│   └── 06_lakeflow_quality_expectations.py
 ├── sql/
 │   └── gold_reporting_queries.sql
 ├── data/
@@ -25,8 +26,14 @@ databricks-lakehouse-demo/
 │   ├── interview_notes.md
 │   └── setup.md
 ├── resources/
+│   ├── lakehouse_quality_expectations.yml
 │   └── lakehouse_workflow.yml
 ├── tests/
+│   ├── test_azure_ingestion_config.py
+│   ├── test_forecast_validation_contract.py
+│   ├── test_incremental_ingestion_contract.py
+│   ├── test_lakeflow_expectations_contract.py
+│   ├── test_quality_history_contract.py
 │   └── test_sample_data_contract.py
 ├── .github/
 │   └── workflows/
@@ -65,6 +72,10 @@ This repository is designed as a reusable portfolio project for data engineering
 | Gold | `gold_client_asset_summary` | Client-facing asset performance summary |
 | Forecast | `gold_downtime_forecast_validation` | Rolling-baseline backtest results with forecast errors |
 | Forecast | `gold_downtime_forecast` | Next-horizon downtime forecast with validation status and interval bounds |
+| Quality | `quality_expectation_silver_machine_events` | Declarative expectation view over trusted silver records |
+| Quality | `quality_expectation_gold_machine_uptime` | Declarative expectation view over machine uptime metrics |
+| Quality | `quality_expectation_downtime_forecast` | Declarative expectation view over forecast outputs |
+| Quality | `quality_expectation_event_log` | Pipeline event log with expectation metrics |
 
 ## How To Run In Databricks
 
@@ -81,7 +92,8 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
    - `03_gold_models.py`
    - `04_quality_checks.py`
    - `05_forecast_validation.py`
-6. Run the SQL in `sql/gold_reporting_queries.sql` in Databricks SQL or a SQL notebook.
+6. Refresh the Lakeflow quality expectations pipeline from the bundle workflow or by running the deployed pipeline resource.
+7. Run the SQL in `sql/gold_reporting_queries.sql` in Databricks SQL or a SQL notebook.
 
 The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the notebook widgets if your workspace uses a different catalog or schema.
 
@@ -90,8 +102,9 @@ The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the 
 The repository includes a Databricks bundle workflow configuration:
 
 - `databricks.yml` defines bundle variables, deployment targets and default paths.
-- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with five dependent notebook tasks:
-  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks` -> `forecast_validation`.
+- `resources/lakehouse_quality_expectations.yml` defines a Lakeflow Spark Declarative Pipelines resource with expectation-backed materialized views.
+- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with six dependent tasks:
+  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks` -> `forecast_validation` -> `quality_expectations_pipeline`.
 
 The workflow schedule is paused by default. After authenticating the Databricks CLI, validate, deploy and run the workflow from the repository root:
 
@@ -118,6 +131,12 @@ Check results are written to `quality_check_results`.
 
 `05_forecast_validation.py` demonstrates that pattern with a transparent rolling-mean downtime baseline. It writes backtest rows to `gold_downtime_forecast_validation` and next-horizon forecast rows to `gold_downtime_forecast`, including error metrics, interval bounds, backtest interval coverage and a `forecast_status` flag.
 
+## Declarative Quality Expectations
+
+`06_lakeflow_quality_expectations.py` defines a Lakeflow Spark Declarative Pipelines quality layer over the trusted silver, gold and forecast outputs. The pipeline records expectation metrics for required keys, metric ranges, interval consistency and known forecast status values.
+
+The expectation pipeline is deployed through the Databricks bundle and refreshed as the final task in the workflow job.
+
 ## Local Validation
 
 The repository includes a small GitHub Actions workflow and standard-library unit tests:
@@ -134,9 +153,10 @@ These checks do not replace running the notebooks in Databricks. They catch basi
 The repository starts from a compact, reviewable baseline:
 
 - Synthetic sample data with an explicit schema contract.
-- Five Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks and forecast validation.
+- Six Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks, forecast validation and declarative quality expectations.
 - Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
 - Reporting SQL for Databricks SQL or notebook use.
+- Lakeflow Spark Declarative Pipelines expectations for selected trusted outputs.
 - Transparent forecast validation outputs for client-safe BI narratives.
 - Setup, architecture and interview notes.
 - GitHub Actions validation for notebook syntax and sample-data drift.
@@ -145,11 +165,10 @@ The repository starts from a compact, reviewable baseline:
 
 This project supports the following explanation:
 
-> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer, transparent forecast validation and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
+> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer, transparent forecast validation, declarative quality expectations and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
 
 ## Next Improvements
 
-- Add Delta Live Tables expectations.
 - Move source, schema and checkpoint paths to Unity Catalog volumes.
 - Add Power BI or Databricks SQL dashboard screenshots using only synthetic data.
 - Add unit-style transformation tests with a small PySpark test harness.

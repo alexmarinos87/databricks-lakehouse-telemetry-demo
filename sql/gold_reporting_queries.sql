@@ -142,3 +142,32 @@ SELECT
 FROM main.lakehouse_demo.quality_metric_history
 ORDER BY checked_at DESC
 LIMIT 30;
+
+-- Recent Lakeflow expectation pipeline events
+SELECT
+  timestamp,
+  event_type,
+  level,
+  message,
+  details
+FROM main.lakehouse_demo.quality_expectation_event_log
+WHERE event_type IN ('flow_progress', 'update_progress')
+ORDER BY timestamp DESC
+LIMIT 50;
+
+-- Row counts from expectation-backed materialized views
+SELECT
+  'quality_expectation_silver_machine_events' AS expectation_dataset,
+  COUNT(*) AS row_count
+FROM main.lakehouse_demo.quality_expectation_silver_machine_events
+UNION ALL
+SELECT
+  'quality_expectation_gold_machine_uptime' AS expectation_dataset,
+  COUNT(*) AS row_count
+FROM main.lakehouse_demo.quality_expectation_gold_machine_uptime
+UNION ALL
+SELECT
+  'quality_expectation_downtime_forecast' AS expectation_dataset,
+  COUNT(*) AS row_count
+FROM main.lakehouse_demo.quality_expectation_downtime_forecast
+ORDER BY expectation_dataset;

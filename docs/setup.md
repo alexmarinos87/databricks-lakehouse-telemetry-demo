@@ -100,6 +100,8 @@ Run these notebooks in order:
 4. `notebooks/04_quality_checks.py`
 5. `notebooks/05_forecast_validation.py`
 
+`notebooks/06_lakeflow_quality_expectations.py` is pipeline source code. Refresh it through the Databricks bundle workflow or the deployed `lakehouse_quality_expectations` pipeline resource rather than running it as a standalone notebook.
+
 Then run:
 
 ```text
@@ -134,6 +136,12 @@ Run the deployed workflow:
 databricks bundle run -t dev lakehouse_demo_workflow
 ```
 
+Refresh only the quality-expectations pipeline:
+
+```bash
+databricks bundle run -t dev lakehouse_quality_expectations
+```
+
 The default schedule is paused. Change `schedule_pause_status` to `UNPAUSED` only after the workflow has run successfully in your workspace.
 
 The shared job cluster defaults to `spark_version` `15.4.x-scala2.12` and `node_type_id` `i3.xlarge`. Override `node_type_id` for Azure, Google Cloud or smaller workspace policies.
@@ -154,3 +162,7 @@ After a successful run, the schema contains:
 - `quality_metric_history`
 - `gold_downtime_forecast_validation`
 - `gold_downtime_forecast`
+- `quality_expectation_silver_machine_events`
+- `quality_expectation_gold_machine_uptime`
+- `quality_expectation_downtime_forecast`
+- `quality_expectation_event_log`
