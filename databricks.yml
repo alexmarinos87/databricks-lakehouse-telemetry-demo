@@ -22,7 +22,7 @@ variables:
     default: dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
   unity_catalog_volume:
     description: Optional Unity Catalog managed volume for raw files, checkpoints and schema metadata.
-    default: ""
+    default: lakehouse_demo_files
   create_unity_catalog_volume:
     description: Create the configured managed volume during bronze ingestion when it does not exist.
     default: "true"
@@ -71,6 +71,18 @@ variables:
   min_validation_observations:
     description: Minimum backtest rows required before a forecast segment is marked validated.
     default: "2"
+  admin_group_name:
+    description: Databricks group with management access to project resources.
+    default: lakehouse-demo-admins
+  engineer_group_name:
+    description: Databricks group with engineering access to project resources.
+    default: lakehouse-demo-engineers
+  analyst_group_name:
+    description: Databricks group with read and reporting access to project outputs.
+    default: lakehouse-demo-analysts
+  ci_service_principal_name:
+    description: Databricks service principal display name or application ID used by CI/CD.
+    default: lakehouse-demo-ci
   spark_version:
     description: Databricks Runtime version for the shared job cluster.
     default: 15.4.x-scala2.12

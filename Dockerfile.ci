@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN chmod +x scripts/run_local_checks.sh
+
+CMD ["./scripts/run_local_checks.sh"]

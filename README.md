@@ -23,11 +23,18 @@ databricks-lakehouse-demo/
 │   └── sample_machine_events.csv
 ├── docs/
 │   ├── architecture.md
+│   ├── deployment.md
 │   ├── interview_notes.md
 │   └── setup.md
 ├── resources/
+│   ├── access_controls.yml
 │   ├── lakehouse_quality_expectations.yml
-│   └── lakehouse_workflow.yml
+│   ├── lakehouse_workflow.yml
+│   └── sql_reporting.yml
+├── scripts/
+│   ├── apply_uc_grants.py
+│   ├── run_local_checks.sh
+│   └── upsert_reporting_queries.py
 ├── tests/
 │   ├── test_azure_ingestion_config.py
 │   ├── test_forecast_validation_contract.py
@@ -111,9 +118,13 @@ The bronze notebook can create the managed volume when `create_unity_catalog_vol
 The repository includes a Databricks bundle workflow configuration:
 
 - `databricks.yml` defines bundle variables, deployment targets and default paths.
+- `resources/access_controls.yml` defines Unity Catalog schema and volume grants.
 - `resources/lakehouse_quality_expectations.yml` defines a Lakeflow Spark Declarative Pipelines resource with expectation-backed materialized views.
+- `resources/sql_reporting.yml` defines a small Databricks SQL warehouse for reporting assets.
 - `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with six dependent tasks:
   `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks` -> `forecast_validation` -> `quality_expectations_pipeline`.
+
+See `docs/deployment.md` for the GitHub Actions deployment flow, Dockerized validation, production approval gate and least-privilege access model.
 
 The workflow schedule is paused by default. After authenticating the Databricks CLI, validate, deploy and run the workflow from the repository root:
 
@@ -151,8 +162,7 @@ The expectation pipeline is deployed through the Databricks bundle and refreshed
 The repository includes a small GitHub Actions workflow and standard-library unit tests:
 
 ```bash
-python3 -m py_compile notebooks/*.py
-python3 -m unittest discover -s tests -v
+scripts/run_local_checks.sh
 ```
 
 These checks do not replace running the notebooks in Databricks. They catch basic syntax issues and sample-data contract drift before pushing changes.
@@ -165,6 +175,7 @@ The repository starts from a compact, reviewable baseline:
 - Six Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks, forecast validation and declarative quality expectations.
 - Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
 - Optional Unity Catalog volume-backed raw, checkpoint and schema paths for bronze ingestion.
+- GitHub Actions deployment with Dockerized validation, bundle diff, dev/prod deployment gates and reporting query publication.
 - Reporting SQL for Databricks SQL or notebook use.
 - Lakeflow Spark Declarative Pipelines expectations for selected trusted outputs.
 - Transparent forecast validation outputs for client-safe BI narratives.

@@ -148,6 +148,10 @@ This repository includes a Databricks bundle job configuration for running the n
 
 - `databricks.yml` defines bundle variables and deployment targets.
 - `resources/lakehouse_workflow.yml` defines the dependent notebook tasks and the shared job cluster.
+- `resources/access_controls.yml` defines Unity Catalog grants for the schema and managed volume.
+- `resources/sql_reporting.yml` defines a reporting SQL warehouse.
+
+For automated deployment through GitHub Actions, see `docs/deployment.md`.
 
 Authenticate the Databricks CLI before validating or deploying:
 

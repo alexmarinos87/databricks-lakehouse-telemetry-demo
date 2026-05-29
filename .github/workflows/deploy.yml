@@ -1,0 +1,312 @@
+name: Deploy Databricks Bundle
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Bundle target to deploy.
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      run_workflow:
+        description: Run the lakehouse workflow after deployment.
+        required: true
+        type: boolean
+        default: true
+      upload_sample_data:
+        description: Upload synthetic sample data before running the workflow.
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: databricks-${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.target || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+  BUNDLE_CATALOG: ${{ vars.DATABRICKS_CATALOG || 'main' }}
+  BUNDLE_SCHEMA: ${{ vars.DATABRICKS_SCHEMA || 'lakehouse_demo' }}
+  UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_VOLUME || 'lakehouse_demo_files' }}
+  NODE_TYPE_ID: ${{ vars.DATABRICKS_NODE_TYPE_ID || 'i3.xlarge' }}
+  ADMIN_GROUP_NAME: ${{ vars.DATABRICKS_ADMIN_GROUP || 'lakehouse-demo-admins' }}
+  ENGINEER_GROUP_NAME: ${{ vars.DATABRICKS_ENGINEER_GROUP || 'lakehouse-demo-engineers' }}
+  ANALYST_GROUP_NAME: ${{ vars.DATABRICKS_ANALYST_GROUP || 'lakehouse-demo-analysts' }}
+  CI_SERVICE_PRINCIPAL_NAME: ${{ vars.DATABRICKS_CI_SERVICE_PRINCIPAL || 'lakehouse-demo-ci' }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build validation image
+        run: docker build -f Dockerfile.ci -t lakehouse-demo-ci .
+
+      - name: Run validation image
+        run: docker run --rm lakehouse-demo-ci
+
+  diff-dev:
+    name: Diff dev
+    needs: test
+    if: github.event_name == 'push' || github.event.inputs.target == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate dev bundle
+        run: |
+          databricks bundle validate -t dev \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Preview dev deployment
+        run: |
+          databricks bundle plan -t dev \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+  deploy-dev:
+    name: Deploy dev
+    needs: diff-dev
+    if: github.event_name == 'push' || github.event.inputs.target == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy dev bundle
+        run: |
+          databricks bundle deploy -t dev \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Apply dev catalog and volume grants
+        run: |
+          scripts/apply_uc_grants.py \
+            --target dev \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --volume "${UNITY_CATALOG_VOLUME}" \
+            --warehouse-name "dev-lakehouse-demo-reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Upload sample data
+        if: github.event_name == 'push' || github.event.inputs.upload_sample_data == 'true'
+        run: |
+          databricks fs mkdirs "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
+          databricks fs cp \
+            data/sample_machine_events.csv \
+            "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events/sample_machine_events.csv" \
+            --overwrite
+
+      - name: Run dev workflow
+        if: github.event_name == 'push' || github.event.inputs.run_workflow == 'true'
+        run: |
+          databricks bundle run -t dev lakehouse_demo_workflow \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Apply dev reporting table grants
+        if: github.event_name == 'push' || github.event.inputs.run_workflow == 'true'
+        run: |
+          scripts/apply_uc_grants.py \
+            --target dev \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --volume "${UNITY_CATALOG_VOLUME}" \
+            --warehouse-name "dev-lakehouse-demo-reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --include-table-grants
+
+      - name: Publish dev SQL queries
+        run: |
+          databricks workspace mkdirs "/Shared/lakehouse-demo/dev/reporting"
+          scripts/upsert_reporting_queries.py \
+            --target dev \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --warehouse-name "dev-lakehouse-demo-reporting" \
+            --parent-path "/Shared/lakehouse-demo/dev/reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+
+  diff-prod:
+    name: Diff prod
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate prod bundle
+        run: |
+          databricks bundle validate -t prod \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Preview prod deployment
+        run: |
+          databricks bundle plan -t prod \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+  deploy-prod:
+    name: Deploy prod
+    needs: diff-prod
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy prod bundle
+        run: |
+          databricks bundle deploy -t prod \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Apply prod catalog and volume grants
+        run: |
+          scripts/apply_uc_grants.py \
+            --target prod \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --volume "${UNITY_CATALOG_VOLUME}" \
+            --warehouse-name "prod-lakehouse-demo-reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Upload sample data
+        if: github.event.inputs.upload_sample_data == 'true'
+        run: |
+          databricks fs mkdirs "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
+          databricks fs cp \
+            data/sample_machine_events.csv \
+            "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events/sample_machine_events.csv" \
+            --overwrite
+
+      - name: Run prod workflow
+        if: github.event.inputs.run_workflow == 'true'
+        run: |
+          databricks bundle run -t prod lakehouse_demo_workflow \
+            --var="catalog=${BUNDLE_CATALOG}" \
+            --var="schema=${BUNDLE_SCHEMA}" \
+            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --var="node_type_id=${NODE_TYPE_ID}" \
+            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
+            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+
+      - name: Apply prod reporting table grants
+        if: github.event.inputs.run_workflow == 'true'
+        run: |
+          scripts/apply_uc_grants.py \
+            --target prod \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --volume "${UNITY_CATALOG_VOLUME}" \
+            --warehouse-name "prod-lakehouse-demo-reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --include-table-grants
+
+      - name: Publish prod SQL queries
+        run: |
+          databricks workspace mkdirs "/Shared/lakehouse-demo/prod/reporting"
+          scripts/upsert_reporting_queries.py \
+            --target prod \
+            --catalog "${BUNDLE_CATALOG}" \
+            --schema "${BUNDLE_SCHEMA}" \
+            --warehouse-name "prod-lakehouse-demo-reporting" \
+            --parent-path "/Shared/lakehouse-demo/prod/reporting" \
+            --admin-group "${ADMIN_GROUP_NAME}" \
+            --engineer-group "${ENGINEER_GROUP_NAME}" \
+            --analyst-group "${ANALYST_GROUP_NAME}" \
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
