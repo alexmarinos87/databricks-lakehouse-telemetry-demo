@@ -20,6 +20,21 @@ variables:
   schema_location:
     description: Auto Loader schema metadata path for the bronze ingest task.
     default: dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
+  unity_catalog_volume:
+    description: Optional Unity Catalog managed volume for raw files, checkpoints and schema metadata.
+    default: ""
+  create_unity_catalog_volume:
+    description: Create the configured managed volume during bronze ingestion when it does not exist.
+    default: "true"
+  volume_source_path:
+    description: Path under the Unity Catalog volume for raw machine event CSV files.
+    default: raw_machine_events
+  volume_checkpoint_path:
+    description: Path under the Unity Catalog volume for Auto Loader checkpoint state.
+    default: _checkpoints/bronze_machine_events
+  volume_schema_location:
+    description: Path under the Unity Catalog volume for Auto Loader schema metadata.
+    default: _schemas/bronze_machine_events
   azure_storage_account:
     description: Optional Azure Data Lake Storage Gen2 account for bronze ingestion.
     default: ""

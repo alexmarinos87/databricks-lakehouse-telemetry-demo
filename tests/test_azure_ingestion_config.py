@@ -10,6 +10,8 @@ from lakehouse_demo.azure_ingestion import (  # noqa: E402
     AzureIngestionConfig,
     build_abfss_uri,
     build_adls_oauth_conf,
+    build_volume_path,
+    quote_sql_identifier,
     resolve_ingestion_paths,
 )
 
@@ -54,9 +56,61 @@ class AzureIngestionConfigTest(unittest.TestCase):
             paths.checkpoint_path,
         )
 
+    def test_build_volume_path_normalizes_path_parts(self):
+        path = build_volume_path("main", "lakehouse_demo", "ingestion", "/raw_machine_events/")
+
+        self.assertEqual("/Volumes/main/lakehouse_demo/ingestion/raw_machine_events", path)
+
+    def test_build_volume_path_accepts_existing_volume_path(self):
+        path = build_volume_path(
+            "main",
+            "lakehouse_demo",
+            "ingestion",
+            "dbfs:/Volumes/main/lakehouse_demo/ingestion/raw_machine_events/",
+        )
+
+        self.assertEqual("/Volumes/main/lakehouse_demo/ingestion/raw_machine_events", path)
+
+    def test_resolve_ingestion_paths_uses_unity_catalog_volume_when_configured(self):
+        paths = resolve_ingestion_paths(
+            AzureIngestionConfig(
+                catalog="main",
+                schema="lakehouse_demo",
+                unity_catalog_volume="ingestion",
+            )
+        )
+
+        self.assertEqual(
+            "/Volumes/main/lakehouse_demo/ingestion/raw_machine_events",
+            paths.source_path,
+        )
+        self.assertEqual(
+            "/Volumes/main/lakehouse_demo/ingestion/_checkpoints/bronze_machine_events",
+            paths.checkpoint_path,
+        )
+        self.assertEqual(
+            "/Volumes/main/lakehouse_demo/ingestion/_schemas/bronze_machine_events",
+            paths.schema_location,
+        )
+
+    def test_resolve_ingestion_paths_rejects_volume_and_direct_azure_mix(self):
+        with self.assertRaisesRegex(ValueError, "unity_catalog_volume"):
+            resolve_ingestion_paths(
+                AzureIngestionConfig(
+                    unity_catalog_volume="ingestion",
+                    azure_storage_account="demostore",
+                    azure_container="landing",
+                )
+            )
+
     def test_resolve_ingestion_paths_requires_account_and_container_together(self):
         with self.assertRaisesRegex(ValueError, "azure_storage_account and azure_container"):
             resolve_ingestion_paths(AzureIngestionConfig(azure_storage_account="demostore"))
+
+    def test_quote_sql_identifier_escapes_parts(self):
+        identifier = quote_sql_identifier("main", "lakehouse`demo", "ingestion")
+
+        self.assertEqual("`main`.`lakehouse``demo`.`ingestion`", identifier)
 
     def test_build_adls_oauth_conf_returns_spark_conf_for_service_principal(self):
         conf = build_adls_oauth_conf(

@@ -34,7 +34,8 @@ databricks-lakehouse-demo/
 │   ├── test_incremental_ingestion_contract.py
 │   ├── test_lakeflow_expectations_contract.py
 │   ├── test_quality_history_contract.py
-│   └── test_sample_data_contract.py
+│   ├── test_sample_data_contract.py
+│   └── test_unity_catalog_volume_ingestion_contract.py
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
@@ -97,6 +98,14 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
 
 The notebooks default to catalog `main` and schema `lakehouse_demo`. Change the notebook widgets if your workspace uses a different catalog or schema.
 
+For governed file storage, set `unity_catalog_volume` when running the bronze notebook or bundle workflow. The raw source, checkpoint and schema metadata paths then resolve under:
+
+```text
+/Volumes/<catalog>/<schema>/<unity_catalog_volume>/
+```
+
+The bronze notebook can create the managed volume when `create_unity_catalog_volume` is `true`. If your platform team manages volumes separately, pre-create the volume and set `create_unity_catalog_volume` to `false`.
+
 ## Workflow Job
 
 The repository includes a Databricks bundle workflow configuration:
@@ -155,6 +164,7 @@ The repository starts from a compact, reviewable baseline:
 - Synthetic sample data with an explicit schema contract.
 - Six Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks, forecast validation and declarative quality expectations.
 - Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
+- Optional Unity Catalog volume-backed raw, checkpoint and schema paths for bronze ingestion.
 - Reporting SQL for Databricks SQL or notebook use.
 - Lakeflow Spark Declarative Pipelines expectations for selected trusted outputs.
 - Transparent forecast validation outputs for client-safe BI narratives.
@@ -169,6 +179,5 @@ This project supports the following explanation:
 
 ## Next Improvements
 
-- Move source, schema and checkpoint paths to Unity Catalog volumes.
 - Add Power BI or Databricks SQL dashboard screenshots using only synthetic data.
 - Add unit-style transformation tests with a small PySpark test harness.

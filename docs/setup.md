@@ -55,6 +55,38 @@ dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events
 
 Keep these paths persistent and unique to the bronze stream. Auto Loader uses the checkpoint to skip files it has already processed. To replay the same landing files from scratch, use a new checkpoint path or clear both the target bronze table and the checkpoint/schema paths.
 
+## Unity Catalog Volume Ingestion
+
+For governed file storage, configure a Unity Catalog volume for the bronze task. When `unity_catalog_volume` is set, the notebook resolves the raw source, checkpoint and schema metadata paths as:
+
+```text
+/Volumes/<catalog>/<schema>/<unity_catalog_volume>/<volume_source_path>
+/Volumes/<catalog>/<schema>/<unity_catalog_volume>/<volume_checkpoint_path>
+/Volumes/<catalog>/<schema>/<unity_catalog_volume>/<volume_schema_location>
+```
+
+Run the workflow with a managed volume:
+
+```bash
+databricks bundle run -t dev \
+  --var="unity_catalog_volume=lakehouse_demo_files" \
+  lakehouse_demo_workflow
+```
+
+The bronze notebook creates the managed volume by default when `create_unity_catalog_volume` is `true`. If your workspace uses pre-provisioned volumes, set:
+
+```bash
+--var="create_unity_catalog_volume=false"
+```
+
+Upload the sample file to a volume path with the Databricks CLI:
+
+```bash
+databricks fs cp \
+  data/sample_machine_events.csv \
+  dbfs:/Volumes/main/lakehouse_demo/lakehouse_demo_files/raw_machine_events/sample_machine_events.csv
+```
+
 ## Azure ADLS Ingestion
 
 The same bronze notebook can read from Azure Data Lake Storage Gen2 by setting the bundle variables below. When `azure_storage_account` and `azure_container` are set, the notebook resolves paths as:

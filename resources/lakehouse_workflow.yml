@@ -25,6 +25,11 @@ resources:
               source_path: ${var.source_path}
               checkpoint_path: ${var.checkpoint_path}
               schema_location: ${var.schema_location}
+              unity_catalog_volume: ${var.unity_catalog_volume}
+              create_unity_catalog_volume: ${var.create_unity_catalog_volume}
+              volume_source_path: ${var.volume_source_path}
+              volume_checkpoint_path: ${var.volume_checkpoint_path}
+              volume_schema_location: ${var.volume_schema_location}
               azure_storage_account: ${var.azure_storage_account}
               azure_container: ${var.azure_container}
               azure_source_path: ${var.azure_source_path}

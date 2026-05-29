@@ -44,6 +44,7 @@ _add_project_src_to_path()
 from lakehouse_demo.azure_ingestion import (  # noqa: E402
     AzureIngestionConfig,
     build_adls_oauth_conf,
+    quote_sql_identifier,
     resolve_ingestion_paths,
 )
 
@@ -54,6 +55,11 @@ dbutils.widgets.text("schema", "lakehouse_demo")
 dbutils.widgets.text("source_path", "dbfs:/FileStore/lakehouse_demo/raw_machine_events")
 dbutils.widgets.text("checkpoint_path", "dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events")
 dbutils.widgets.text("schema_location", "dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events")
+dbutils.widgets.text("unity_catalog_volume", "")
+dbutils.widgets.text("create_unity_catalog_volume", "true")
+dbutils.widgets.text("volume_source_path", "raw_machine_events")
+dbutils.widgets.text("volume_checkpoint_path", "_checkpoints/bronze_machine_events")
+dbutils.widgets.text("volume_schema_location", "_schemas/bronze_machine_events")
 dbutils.widgets.text("azure_storage_account", "")
 dbutils.widgets.text("azure_container", "")
 dbutils.widgets.text("azure_source_path", "lakehouse_demo/raw_machine_events")
@@ -66,6 +72,8 @@ dbutils.widgets.text("azure_client_secret_key", "")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+unity_catalog_volume = dbutils.widgets.get("unity_catalog_volume").strip()
+create_unity_catalog_volume = dbutils.widgets.get("create_unity_catalog_volume").strip().lower() == "true"
 
 azure_client_secret_scope = dbutils.widgets.get("azure_client_secret_scope").strip()
 azure_client_secret_key = dbutils.widgets.get("azure_client_secret_key").strip()
@@ -76,9 +84,15 @@ if azure_client_secret_scope or azure_client_secret_key:
     azure_client_secret = dbutils.secrets.get(scope=azure_client_secret_scope, key=azure_client_secret_key)
 
 ingestion_config = AzureIngestionConfig(
+    catalog=catalog,
+    schema=schema,
     source_path=dbutils.widgets.get("source_path"),
     checkpoint_path=dbutils.widgets.get("checkpoint_path"),
     schema_location=dbutils.widgets.get("schema_location"),
+    unity_catalog_volume=unity_catalog_volume,
+    volume_source_path=dbutils.widgets.get("volume_source_path"),
+    volume_checkpoint_path=dbutils.widgets.get("volume_checkpoint_path"),
+    volume_schema_location=dbutils.widgets.get("volume_schema_location"),
     azure_storage_account=dbutils.widgets.get("azure_storage_account"),
     azure_container=dbutils.widgets.get("azure_container"),
     azure_source_path=dbutils.widgets.get("azure_source_path"),
@@ -101,7 +115,15 @@ bronze_table = f"{catalog}.{schema}.bronze_machine_events"
 
 # COMMAND ----------
 
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}")
+schema_identifier = quote_sql_identifier(catalog, schema)
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_identifier}")
+
+if unity_catalog_volume and create_unity_catalog_volume:
+    volume_identifier = quote_sql_identifier(catalog, schema, unity_catalog_volume)
+    spark.sql(
+        f"CREATE VOLUME IF NOT EXISTS {volume_identifier} "
+        "COMMENT 'Managed volume for lakehouse demo ingestion files and Auto Loader state'"
+    )
 
 # COMMAND ----------
 

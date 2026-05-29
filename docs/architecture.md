@@ -36,6 +36,8 @@ Auto Loader state is stored outside the Delta table:
 - `checkpoint_path` tracks stream progress and processed files.
 - `schema_location` stores the Auto Loader schema metadata.
 
+By default, the demo uses DBFS paths so it works in a small workspace. For a governed workspace, set `unity_catalog_volume` and the bronze task resolves the raw source, checkpoint and schema metadata paths under `/Volumes/<catalog>/<schema>/<volume>/`. Direct ADLS paths remain available for workspaces that prefer external cloud URI configuration.
+
 ## Silver
 
 `silver_machine_events` applies the main engineering logic:

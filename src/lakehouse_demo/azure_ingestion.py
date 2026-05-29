@@ -1,4 +1,4 @@
-"""Azure ADLS configuration helpers for Databricks Auto Loader ingestion."""
+"""Configuration helpers for Databricks Auto Loader ingestion paths."""
 
 from __future__ import annotations
 
@@ -37,6 +37,10 @@ DEFAULT_AZURE_SOURCE_PATH = "lakehouse_demo/raw_machine_events"
 DEFAULT_AZURE_CHECKPOINT_PATH = "lakehouse_demo/_checkpoints/bronze_machine_events"
 DEFAULT_AZURE_SCHEMA_LOCATION = "lakehouse_demo/_schemas/bronze_machine_events"
 
+DEFAULT_VOLUME_SOURCE_PATH = "raw_machine_events"
+DEFAULT_VOLUME_CHECKPOINT_PATH = "_checkpoints/bronze_machine_events"
+DEFAULT_VOLUME_SCHEMA_LOCATION = "_schemas/bronze_machine_events"
+
 
 @dataclass(frozen=True)
 class IngestionPaths:
@@ -47,9 +51,15 @@ class IngestionPaths:
 
 @dataclass(frozen=True)
 class AzureIngestionConfig:
+    catalog: str = "main"
+    schema: str = "lakehouse_demo"
     source_path: str = DEFAULT_SOURCE_PATH
     checkpoint_path: str = DEFAULT_CHECKPOINT_PATH
     schema_location: str = DEFAULT_SCHEMA_LOCATION
+    unity_catalog_volume: str = ""
+    volume_source_path: str = DEFAULT_VOLUME_SOURCE_PATH
+    volume_checkpoint_path: str = DEFAULT_VOLUME_CHECKPOINT_PATH
+    volume_schema_location: str = DEFAULT_VOLUME_SCHEMA_LOCATION
     azure_storage_account: str = ""
     azure_container: str = ""
     azure_source_path: str = DEFAULT_AZURE_SOURCE_PATH
@@ -62,6 +72,16 @@ class AzureIngestionConfig:
 
 def _clean(value: str | None) -> str:
     return (value or "").strip()
+
+
+def quote_sql_identifier(*parts: str) -> str:
+    """Quote a multipart SQL identifier for Spark SQL."""
+    clean_parts = [_clean(part) for part in parts]
+    missing_parts = [index + 1 for index, part in enumerate(clean_parts) if not part]
+    if missing_parts:
+        raise ValueError(f"SQL identifier part {missing_parts[0]} is required")
+
+    return ".".join(f"`{part.replace('`', '``')}`" for part in clean_parts)
 
 
 def build_abfss_uri(container: str, storage_account: str, path: str) -> str:
@@ -84,10 +104,64 @@ def build_abfss_uri(container: str, storage_account: str, path: str) -> str:
     return f"{uri_root}/{clean_path.strip('/')}"
 
 
+def build_volume_path(catalog: str, schema: str, volume: str, path: str = "") -> str:
+    """Build a Unity Catalog volume path for Spark reads and writes."""
+    clean_catalog = _clean(catalog)
+    clean_schema = _clean(schema)
+    clean_volume = _clean(volume)
+    clean_path = _clean(path)
+
+    if not clean_catalog:
+        raise ValueError("catalog is required for Unity Catalog volume paths")
+    if not clean_schema:
+        raise ValueError("schema is required for Unity Catalog volume paths")
+    if not clean_volume:
+        raise ValueError("unity_catalog_volume is required for Unity Catalog volume paths")
+
+    if clean_path.startswith("dbfs:/Volumes/"):
+        clean_path = clean_path.removeprefix("dbfs:")
+    if clean_path.startswith("/Volumes/"):
+        return clean_path.rstrip("/")
+
+    volume_root = f"/Volumes/{clean_catalog}/{clean_schema}/{clean_volume}"
+    if not clean_path:
+        return volume_root
+
+    return f"{volume_root}/{clean_path.strip('/')}"
+
+
 def resolve_ingestion_paths(config: AzureIngestionConfig) -> IngestionPaths:
-    """Resolve DBFS defaults or Azure ADLS paths for the bronze ingestion task."""
+    """Resolve DBFS, Unity Catalog volume or Azure ADLS paths for bronze ingestion."""
+    unity_catalog_volume = _clean(config.unity_catalog_volume)
     storage_account = _clean(config.azure_storage_account)
     container = _clean(config.azure_container)
+
+    if unity_catalog_volume:
+        if storage_account or container:
+            raise ValueError(
+                "Use either unity_catalog_volume or direct Azure ADLS ingestion paths, not both"
+            )
+
+        return IngestionPaths(
+            source_path=build_volume_path(
+                config.catalog,
+                config.schema,
+                unity_catalog_volume,
+                config.volume_source_path,
+            ),
+            checkpoint_path=build_volume_path(
+                config.catalog,
+                config.schema,
+                unity_catalog_volume,
+                config.volume_checkpoint_path,
+            ),
+            schema_location=build_volume_path(
+                config.catalog,
+                config.schema,
+                unity_catalog_volume,
+                config.volume_schema_location,
+            ),
+        )
 
     if storage_account or container:
         if not storage_account or not container:
