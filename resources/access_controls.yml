@@ -1,0 +1,61 @@
+resources:
+  schemas:
+    lakehouse_demo_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: Schema for the synthetic lakehouse telemetry demo.
+      grants:
+        - principal: ${var.admin_group_name}
+          privileges:
+            - MANAGE
+            - USE_SCHEMA
+            - CREATE_TABLE
+            - CREATE_VOLUME
+            - CREATE_FUNCTION
+            - MODIFY
+            - SELECT
+            - READ_VOLUME
+            - WRITE_VOLUME
+        - principal: ${var.engineer_group_name}
+          privileges:
+            - USE_SCHEMA
+            - CREATE_TABLE
+            - CREATE_VOLUME
+            - MODIFY
+            - SELECT
+            - READ_VOLUME
+            - WRITE_VOLUME
+        - principal: ${var.analyst_group_name}
+          privileges:
+            - USE_SCHEMA
+        - principal: ${var.ci_service_principal_name}
+          privileges:
+            - USE_SCHEMA
+            - CREATE_TABLE
+            - CREATE_VOLUME
+            - MODIFY
+            - SELECT
+            - READ_VOLUME
+            - WRITE_VOLUME
+
+  volumes:
+    lakehouse_demo_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.unity_catalog_volume}
+      volume_type: MANAGED
+      comment: Managed volume for sample source files and Auto Loader state.
+      grants:
+        - principal: ${var.admin_group_name}
+          privileges:
+            - MANAGE
+            - READ_VOLUME
+            - WRITE_VOLUME
+        - principal: ${var.engineer_group_name}
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME
+        - principal: ${var.ci_service_principal_name}
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME

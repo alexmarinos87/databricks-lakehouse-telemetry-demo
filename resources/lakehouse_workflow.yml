@@ -4,6 +4,15 @@ resources:
       name: ${bundle.target}-lakehouse-demo-workflow
       description: Runs the Databricks Lakehouse demo from bronze ingest through declarative quality expectations.
       max_concurrent_runs: 1
+      permissions:
+        - group_name: ${var.admin_group_name}
+          level: CAN_MANAGE
+        - group_name: ${var.engineer_group_name}
+          level: CAN_MANAGE_RUN
+        - group_name: ${var.analyst_group_name}
+          level: CAN_VIEW
+        - service_principal_name: ${var.ci_service_principal_name}
+          level: CAN_MANAGE
       schedule:
         quartz_cron_expression: 0 0 7 * * ?
         timezone_id: Europe/London

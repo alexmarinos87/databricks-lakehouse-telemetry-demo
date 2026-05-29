@@ -4,6 +4,15 @@ resources:
       name: ${bundle.target}-lakehouse-quality-expectations
       catalog: ${var.catalog}
       schema: ${var.schema}
+      permissions:
+        - group_name: ${var.admin_group_name}
+          level: CAN_MANAGE
+        - group_name: ${var.engineer_group_name}
+          level: CAN_RUN
+        - group_name: ${var.analyst_group_name}
+          level: CAN_VIEW
+        - service_principal_name: ${var.ci_service_principal_name}
+          level: CAN_MANAGE
       development: true
       continuous: false
       channel: CURRENT

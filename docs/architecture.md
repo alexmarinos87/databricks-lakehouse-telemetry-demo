@@ -104,3 +104,16 @@ The Databricks bundle configuration deploys the lakehouse pipeline as a workflow
 6. `quality_expectations_pipeline`
 
 The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings. The final task refreshes the Lakeflow quality-expectations pipeline.
+
+## Deployment And Access
+
+GitHub Actions runs Dockerized local checks before bundle deployment. The deployment workflow separates validation, bundle plan and deploy stages, with the production target protected by a GitHub environment approval.
+
+The bundle manages least-privilege access for the main Databricks resources:
+
+- Job permissions are defined on `lakehouse_demo_workflow`.
+- Pipeline permissions are defined on `lakehouse_quality_expectations`.
+- SQL warehouse permissions are defined on `lakehouse_demo_reporting`.
+- Unity Catalog schema and volume grants are defined in `resources/access_controls.yml`.
+
+Saved Databricks SQL queries are published after bundle deployment so reporting assets appear under SQL Queries instead of only existing as repository files.

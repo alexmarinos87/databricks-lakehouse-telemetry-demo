@@ -1,0 +1,22 @@
+[
+  {
+    "display_name": "Lakehouse Demo - Daily uptime by site and model",
+    "description": "Average uptime, downtime and health by event date, site and model.",
+    "file": "daily_uptime_by_site_model.sql"
+  },
+  {
+    "display_name": "Lakehouse Demo - Client asset summary",
+    "description": "Client-facing asset uptime, downtime, failure count and failure-related cost.",
+    "file": "client_asset_summary.sql"
+  },
+  {
+    "display_name": "Lakehouse Demo - Downtime forecast",
+    "description": "Next-horizon downtime forecast with validation metrics and interval coverage.",
+    "file": "downtime_forecast.sql"
+  },
+  {
+    "display_name": "Lakehouse Demo - Quality monitoring",
+    "description": "Recent failed checks and quality-check history for pipeline monitoring.",
+    "file": "quality_monitoring.sql"
+  }
+]
