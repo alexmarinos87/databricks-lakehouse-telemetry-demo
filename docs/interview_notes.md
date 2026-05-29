@@ -16,6 +16,7 @@ The scenario mirrors common industrial data problems:
 ## What I Would Emphasize
 
 - Bronze uses Auto Loader to incrementally ingest new CSV files while preserving source-shaped records with lineage metadata.
+- Bronze can use DBFS defaults, direct ADLS paths or Unity Catalog volume-backed paths for raw files and Auto Loader state.
 - Silver applies data quality rules, typing and deduplication.
 - Gold translates engineering data into reporting views.
 - The forecast validation notebook adds backtested downtime forecasts with error metrics and readiness flags.
