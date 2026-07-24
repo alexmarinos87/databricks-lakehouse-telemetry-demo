@@ -71,10 +71,20 @@ resources:
 
         - task_key: quality_checks
           depends_on:
-            - task_key: gold_models
+            - task_key: warehouse_model
           job_cluster_key: lakehouse_demo_cluster
           notebook_task:
             notebook_path: ../notebooks/04_quality_checks.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: warehouse_model
+          depends_on:
+            - task_key: gold_models
+          job_cluster_key: lakehouse_demo_cluster
+          notebook_task:
+            notebook_path: ../notebooks/07_warehouse_model.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
