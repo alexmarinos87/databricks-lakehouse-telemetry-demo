@@ -17,12 +17,40 @@ catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 
 gold_uptime = f"{catalog}.{schema}.gold_machine_uptime"
+dim_date = f"{catalog}.{schema}.dim_date"
 dim_machine = f"{catalog}.{schema}.dim_machine"
 fact_machine_uptime = f"{catalog}.{schema}.fact_machine_uptime_daily"
 
 # COMMAND ----------
 
 uptime = spark.table(gold_uptime)
+
+dates = (
+    uptime.agg(
+        F.min("event_date").alias("first_date"),
+        F.max("event_date").alias("last_date"),
+    )
+    .select(F.explode(F.sequence("first_date", "last_date")).alias("date_day"))
+    .withColumn("date_key", F.date_format("date_day", "yyyyMMdd").cast("int"))
+    .withColumn("year", F.year("date_day"))
+    .withColumn("quarter", F.quarter("date_day"))
+    .withColumn("month", F.month("date_day"))
+    .withColumn("month_name", F.date_format("date_day", "MMMM"))
+    .withColumn("day_of_month", F.dayofmonth("date_day"))
+    .withColumn("week_of_year", F.weekofyear("date_day"))
+    .withColumn("is_weekend", F.dayofweek("date_day").isin(1, 7))
+    .select(
+        "date_key",
+        "date_day",
+        "year",
+        "quarter",
+        "month",
+        "month_name",
+        "day_of_month",
+        "week_of_year",
+        "is_weekend",
+    )
+)
 
 machines = (
     uptime.select("machine_id", "site_id", "client_id", "model")
@@ -33,8 +61,10 @@ machines = (
 
 facts = (
     uptime.join(machines.select("machine_id", "machine_key"), "machine_id")
+    .join(dates.select("date_day", "date_key"), uptime.event_date == dates.date_day)
     .select(
         "event_date",
+        "date_key",
         "machine_key",
         "running_minutes",
         "idle_minutes",
@@ -49,6 +79,7 @@ facts = (
 # COMMAND ----------
 
 for dataframe, table_name in [
+    (dates, dim_date),
     (machines, dim_machine),
     (facts, fact_machine_uptime),
 ]:
