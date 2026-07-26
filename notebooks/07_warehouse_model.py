@@ -19,6 +19,7 @@ schema = dbutils.widgets.get("schema")
 gold_uptime = f"{catalog}.{schema}.gold_machine_uptime"
 dim_date = f"{catalog}.{schema}.dim_date"
 dim_machine = f"{catalog}.{schema}.dim_machine"
+dim_site = f"{catalog}.{schema}.dim_site"
 fact_machine_uptime = f"{catalog}.{schema}.fact_machine_uptime_daily"
 
 # COMMAND ----------
@@ -59,13 +60,22 @@ machines = (
     .select("machine_key", "machine_id", "site_id", "client_id", "model")
 )
 
+sites = (
+    uptime.select("site_id", "client_id")
+    .dropDuplicates(["site_id", "client_id"])
+    .withColumn("site_key", F.xxhash64("client_id", "site_id"))
+    .select("site_key", "site_id", "client_id")
+)
+
 facts = (
     uptime.join(machines.select("machine_id", "machine_key"), "machine_id")
     .join(dates.select("date_day", "date_key"), uptime.event_date == dates.date_day)
+    .join(sites.select("site_id", "client_id", "site_key"), ["site_id", "client_id"])
     .select(
         "event_date",
         "date_key",
         "machine_key",
+        "site_key",
         "running_minutes",
         "idle_minutes",
         "maintenance_minutes",
@@ -81,6 +91,7 @@ facts = (
 for dataframe, table_name in [
     (dates, dim_date),
     (machines, dim_machine),
+    (sites, dim_site),
     (facts, fact_machine_uptime),
 ]:
     (
