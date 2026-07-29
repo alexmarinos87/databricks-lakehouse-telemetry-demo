@@ -15,10 +15,12 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("dim_client", notebook)
         self.assertIn("dim_date", notebook)
         self.assertIn("dim_machine", notebook)
+        self.assertIn("dim_model", notebook)
         self.assertIn("dim_site", notebook)
         self.assertIn("fact_machine_uptime_daily", notebook)
         self.assertIn('F.xxhash64("client_id")', notebook)
         self.assertIn('F.xxhash64("machine_id")', notebook)
+        self.assertIn('F.xxhash64("model")', notebook)
         self.assertIn('F.xxhash64("client_id", "site_id")', notebook)
         self.assertIn('F.date_format("date_day", "yyyyMMdd").cast("int")', notebook)
         self.assertIn('"is_weekend"', notebook)
@@ -28,6 +30,7 @@ class WarehouseModelContractTest(unittest.TestCase):
             notebook,
         )
         self.assertIn('clients.select("client_id", "client_key")', notebook)
+        self.assertIn('models.select("model", "model_key")', notebook)
 
     def test_warehouse_runs_between_gold_and_quality(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
