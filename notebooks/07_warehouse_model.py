@@ -20,6 +20,7 @@ gold_uptime = f"{catalog}.{schema}.gold_machine_uptime"
 dim_client = f"{catalog}.{schema}.dim_client"
 dim_date = f"{catalog}.{schema}.dim_date"
 dim_machine = f"{catalog}.{schema}.dim_machine"
+dim_model = f"{catalog}.{schema}.dim_model"
 dim_site = f"{catalog}.{schema}.dim_site"
 fact_machine_uptime = f"{catalog}.{schema}.fact_machine_uptime_daily"
 
@@ -75,16 +76,25 @@ clients = (
     .select("client_key", "client_id")
 )
 
+models = (
+    uptime.select("model")
+    .dropDuplicates(["model"])
+    .withColumn("model_key", F.xxhash64("model"))
+    .select("model_key", "model")
+)
+
 facts = (
     uptime.join(machines.select("machine_id", "machine_key"), "machine_id")
     .join(dates.select("date_day", "date_key"), uptime.event_date == dates.date_day)
     .join(sites.select("site_id", "client_id", "site_key"), ["site_id", "client_id"])
     .join(clients.select("client_id", "client_key"), "client_id")
+    .join(models.select("model", "model_key"), "model")
     .select(
         "event_date",
         "date_key",
         "client_key",
         "machine_key",
+        "model_key",
         "site_key",
         "running_minutes",
         "idle_minutes",
@@ -102,6 +112,7 @@ for dataframe, table_name in [
     (clients, dim_client),
     (dates, dim_date),
     (machines, dim_machine),
+    (models, dim_model),
     (sites, dim_site),
     (facts, fact_machine_uptime),
 ]:
