@@ -89,7 +89,9 @@ facts = (
     .join(sites.select("site_id", "client_id", "site_key"), ["site_id", "client_id"])
     .join(clients.select("client_id", "client_key"), "client_id")
     .join(models.select("model", "model_key"), "model")
+    .withColumn("uptime_fact_key", F.xxhash64("event_date", "machine_id"))
     .select(
+        "uptime_fact_key",
         "event_date",
         "date_key",
         "client_key",
