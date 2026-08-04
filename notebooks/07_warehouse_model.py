@@ -90,6 +90,13 @@ facts = (
     .join(clients.select("client_id", "client_key"), "client_id")
     .join(models.select("model", "model_key"), "model")
     .withColumn("uptime_fact_key", F.xxhash64("event_date", "machine_id"))
+    .withColumn(
+        "downtime_pct",
+        F.when(
+            F.col("observed_minutes") > 0,
+            F.round(F.col("downtime_minutes") / F.col("observed_minutes") * 100, 2),
+        ).otherwise(F.lit(None).cast("double")),
+    )
     .select(
         "uptime_fact_key",
         "event_date",
@@ -104,6 +111,7 @@ facts = (
         "downtime_minutes",
         "observed_minutes",
         "uptime_pct",
+        "downtime_pct",
         "avg_health_score",
     )
 )
