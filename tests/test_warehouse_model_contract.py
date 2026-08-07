@@ -20,6 +20,11 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("fact_machine_uptime_daily", notebook)
         self.assertIn("uptime_fact_key", notebook)
         self.assertIn('"downtime_pct"', notebook)
+        self.assertIn('"maintenance_pct"', notebook)
+        self.assertIn(
+            'F.col("maintenance_minutes") / F.col("observed_minutes")',
+            notebook,
+        )
         self.assertIn('F.col("observed_minutes") > 0', notebook)
         self.assertIn(
             'F.xxhash64("event_date", "machine_id")',
