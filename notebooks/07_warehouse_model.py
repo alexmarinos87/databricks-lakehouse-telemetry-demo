@@ -104,6 +104,13 @@ facts = (
             F.round(F.col("maintenance_minutes") / F.col("observed_minutes") * 100, 2),
         ).otherwise(F.lit(None).cast("double")),
     )
+    .withColumn(
+        "idle_pct",
+        F.when(
+            F.col("observed_minutes") > 0,
+            F.round(F.col("idle_minutes") / F.col("observed_minutes") * 100, 2),
+        ).otherwise(F.lit(None).cast("double")),
+    )
     .select(
         "uptime_fact_key",
         "event_date",
@@ -118,6 +125,7 @@ facts = (
         "downtime_minutes",
         "observed_minutes",
         "uptime_pct",
+        "idle_pct",
         "downtime_pct",
         "maintenance_pct",
         "avg_health_score",
