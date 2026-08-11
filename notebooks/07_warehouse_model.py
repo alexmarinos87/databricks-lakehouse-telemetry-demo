@@ -40,6 +40,8 @@ dates = (
     .withColumn("month", F.month("date_day"))
     .withColumn("month_name", F.date_format("date_day", "MMMM"))
     .withColumn("day_of_month", F.dayofmonth("date_day"))
+    .withColumn("day_of_week", F.dayofweek("date_day"))
+    .withColumn("day_name", F.date_format("date_day", "EEEE"))
     .withColumn("week_of_year", F.weekofyear("date_day"))
     .withColumn("is_weekend", F.dayofweek("date_day").isin(1, 7))
     .select(
@@ -50,6 +52,8 @@ dates = (
         "month",
         "month_name",
         "day_of_month",
+        "day_of_week",
+        "day_name",
         "week_of_year",
         "is_weekend",
     )
