@@ -40,6 +40,8 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn('F.xxhash64("model")', notebook)
         self.assertIn('F.xxhash64("client_id", "site_id")', notebook)
         self.assertIn('F.date_format("date_day", "yyyyMMdd").cast("int")', notebook)
+        self.assertIn('F.date_format("date_day", "yyyyMM").cast("int")', notebook)
+        self.assertIn('F.date_format("date_day", "yyyy-MM")', notebook)
         self.assertIn('F.dayofweek("date_day")', notebook)
         self.assertIn('F.date_format("date_day", "EEEE")', notebook)
         self.assertIn('"is_weekend"', notebook)
