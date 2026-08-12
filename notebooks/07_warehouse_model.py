@@ -39,6 +39,8 @@ dates = (
     .withColumn("quarter", F.quarter("date_day"))
     .withColumn("month", F.month("date_day"))
     .withColumn("month_name", F.date_format("date_day", "MMMM"))
+    .withColumn("year_month_key", F.date_format("date_day", "yyyyMM").cast("int"))
+    .withColumn("year_month", F.date_format("date_day", "yyyy-MM"))
     .withColumn("day_of_month", F.dayofmonth("date_day"))
     .withColumn("day_of_week", F.dayofweek("date_day"))
     .withColumn("day_name", F.date_format("date_day", "EEEE"))
@@ -51,6 +53,8 @@ dates = (
         "quarter",
         "month",
         "month_name",
+        "year_month_key",
+        "year_month",
         "day_of_month",
         "day_of_week",
         "day_name",
