@@ -14,6 +14,7 @@ SQL_REPORTING = REPO_ROOT / "resources" / "sql_reporting.yml"
 QUERY_SCRIPT = REPO_ROOT / "scripts" / "upsert_reporting_queries.py"
 GRANT_SCRIPT = REPO_ROOT / "scripts" / "apply_uc_grants.py"
 QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
+FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
 
 class DeploymentContractTest(unittest.TestCase):
@@ -72,11 +73,14 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("REPORTING_TABLES", grant_script)
         self.assertIn("GRANT SELECT ON TABLE", grant_script)
         self.assertIn("/api/2.0/sql/statements", grant_script)
+        self.assertIn("fact_machine_failure_event", grant_script)
+        self.assertIn("dim_fault", grant_script)
 
     def test_sql_reporting_assets_are_published_after_deploy(self):
         deploy_workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         query_script = QUERY_SCRIPT.read_text(encoding="utf-8")
         manifest = QUERY_MANIFEST.read_text(encoding="utf-8")
+        failure_query = FAILURE_QUERY.read_text(encoding="utf-8")
 
         self.assertIn("Publish dev SQL queries", deploy_workflow)
         self.assertIn("Publish prod SQL queries", deploy_workflow)
@@ -88,6 +92,10 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn('"permissions"', query_script)
         self.assertIn("daily_uptime_by_site_model.sql", manifest)
         self.assertIn("downtime_forecast.sql", manifest)
+        self.assertIn("failure_events_by_fault.sql", manifest)
+        self.assertIn("fact_machine_failure_event", failure_query)
+        self.assertIn("dim_fault", failure_query)
+        self.assertIn("affected_machine_count", failure_query)
 
 
 if __name__ == "__main__":

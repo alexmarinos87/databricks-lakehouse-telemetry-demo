@@ -61,6 +61,17 @@ The gold layer provides BI-ready outputs:
 - `gold_parts_usage`: part demand by date, site and model.
 - `gold_client_asset_summary`: client-facing asset reliability summary.
 
+## Dimensional Warehouse
+
+`07_warehouse_model.py` publishes a compact star schema after the medallion layers. Shared dimensions cover client, date, machine, model and site, while `dim_fault` adds fault code, severity and a sortable severity rank.
+
+The warehouse includes two fact tables:
+
+- `fact_machine_uptime_daily`: daily operating-minute and percentage measures by machine.
+- `fact_machine_failure_event`: event-level reliability measures, including downtime, maintenance cost, sensor readings and parts usage.
+
+Saved Databricks SQL assets join these facts to their dimensions, so reporting consumers can use governed business labels without rebuilding joins in every report.
+
 ## Forecast Validation
 
 `05_forecast_validation.py` adds a transparent baseline forecasting layer on top of `gold_machine_uptime`.
@@ -94,14 +105,15 @@ The Lakeflow pipeline writes expectation metrics to `quality_expectation_event_l
 
 ## Workflow Orchestration
 
-The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with six sequential tasks:
+The Databricks bundle configuration deploys the lakehouse pipeline as a workflow job with seven sequential tasks:
 
 1. `bronze_ingest`
 2. `silver_transform`
 3. `gold_models`
-4. `quality_checks`
-5. `forecast_validation`
-6. `quality_expectations_pipeline`
+4. `warehouse_model`
+5. `quality_checks`
+6. `forecast_validation`
+7. `quality_expectations_pipeline`
 
 The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings. The final task refreshes the Lakeflow quality-expectations pipeline.
 
