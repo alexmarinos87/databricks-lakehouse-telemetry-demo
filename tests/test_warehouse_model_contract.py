@@ -53,6 +53,18 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn('clients.select("client_id", "client_key")', notebook)
         self.assertIn('models.select("model", "model_key")', notebook)
 
+    def test_failure_star_schema_is_built_from_gold_failures(self):
+        notebook = NOTEBOOK.read_text(encoding="utf-8")
+
+        self.assertIn("gold_failure_events", notebook)
+        self.assertIn("dim_fault", notebook)
+        self.assertIn("fact_machine_failure_event", notebook)
+        self.assertIn('F.xxhash64("fault_code", "severity")', notebook)
+        self.assertIn('F.xxhash64("event_id")', notebook)
+        self.assertIn('"failure_event_count", F.lit(1)', notebook)
+        self.assertIn('"maintenance_cost_gbp"', notebook)
+        self.assertIn('"part_quantity"', notebook)
+
     def test_warehouse_runs_between_gold_and_quality(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 

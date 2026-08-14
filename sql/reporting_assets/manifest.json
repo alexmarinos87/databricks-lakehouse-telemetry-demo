@@ -10,6 +10,11 @@
     "file": "client_asset_summary.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Failure events by fault",
+    "description": "Warehouse-backed failure counts, affected machines, downtime and maintenance cost by fault.",
+    "file": "failure_events_by_fault.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Downtime forecast",
     "description": "Next-horizon downtime forecast with validation metrics and interval coverage.",
     "file": "downtime_forecast.sql"

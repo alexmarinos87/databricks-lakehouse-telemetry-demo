@@ -2,7 +2,7 @@
 
 Synthetic construction equipment telemetry project for demonstrating a Databricks Lakehouse workflow.
 
-The project is intentionally small, company-neutral and explainable. It shows how raw machine events can move through bronze, silver and gold Delta tables, with validation checks and SQL outputs suitable for reporting.
+The project is intentionally small, company-neutral and explainable. It shows how raw machine events can move through bronze, silver and gold Delta tables into a dimensional warehouse, with validation checks and SQL outputs suitable for reporting.
 
 ## Project Structure
 
@@ -16,7 +16,8 @@ databricks-lakehouse-demo/
 │   ├── 03_gold_models.py
 │   ├── 04_quality_checks.py
 │   ├── 05_forecast_validation.py
-│   └── 06_lakeflow_quality_expectations.py
+│   ├── 06_lakeflow_quality_expectations.py
+│   └── 07_warehouse_model.py
 ├── sql/
 │   └── gold_reporting_queries.sql
 ├── data/
@@ -64,6 +65,7 @@ This repository is designed as a reusable portfolio project for data engineering
 - Delta table modelling.
 - Data quality checks.
 - BI-ready gold outputs.
+- Dimensional warehouse facts and dimensions.
 - GitHub version control and CI validation.
 
 ## Lakehouse Layers
@@ -78,6 +80,9 @@ This repository is designed as a reusable portfolio project for data engineering
 | Gold | `gold_maintenance_costs` | Maintenance cost and downtime aggregates |
 | Gold | `gold_parts_usage` | Parts usage by date, site, model and part |
 | Gold | `gold_client_asset_summary` | Client-facing asset performance summary |
+| Warehouse | `dim_client`, `dim_date`, `dim_fault`, `dim_machine`, `dim_model`, `dim_site` | Shared reporting dimensions |
+| Warehouse | `fact_machine_uptime_daily` | Daily operating performance by machine |
+| Warehouse | `fact_machine_failure_event` | Event-level fault, downtime, cost and parts measures |
 | Forecast | `gold_downtime_forecast_validation` | Rolling-baseline backtest results with forecast errors |
 | Forecast | `gold_downtime_forecast` | Next-horizon downtime forecast with validation status and interval bounds |
 | Quality | `quality_expectation_silver_machine_events` | Declarative expectation view over trusted silver records |
@@ -98,6 +103,7 @@ See `docs/setup.md` for the GitHub and Databricks Git folder setup notes.
    - `01_bronze_ingest.py`
    - `02_silver_transform.py`
    - `03_gold_models.py`
+   - `07_warehouse_model.py`
    - `04_quality_checks.py`
    - `05_forecast_validation.py`
 6. Refresh the Lakeflow quality expectations pipeline from the bundle workflow or by running the deployed pipeline resource.
@@ -121,8 +127,8 @@ The repository includes a Databricks bundle workflow configuration:
 - `resources/access_controls.yml` defines Unity Catalog schema and volume grants.
 - `resources/lakehouse_quality_expectations.yml` defines a Lakeflow Spark Declarative Pipelines resource with expectation-backed materialized views.
 - `resources/sql_reporting.yml` defines a small Databricks SQL warehouse for reporting assets.
-- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with six dependent tasks:
-  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `quality_checks` -> `forecast_validation` -> `quality_expectations_pipeline`.
+- `resources/lakehouse_workflow.yml` defines a scheduled Lakeflow Job with seven dependent tasks:
+  `bronze_ingest` -> `silver_transform` -> `gold_models` -> `warehouse_model` -> `quality_checks` -> `forecast_validation` -> `quality_expectations_pipeline`.
 
 See `docs/deployment.md` for the GitHub Actions deployment flow, Dockerized validation, production approval gate and least-privilege access model.
 
@@ -172,7 +178,7 @@ These checks do not replace running the notebooks in Databricks. They catch basi
 The repository starts from a compact, reviewable baseline:
 
 - Synthetic sample data with an explicit schema contract.
-- Six Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, quality checks, forecast validation and declarative quality expectations.
+- Seven Databricks notebooks covering Auto Loader bronze ingest, silver transform, gold models, dimensional warehouse modelling, quality checks, forecast validation and declarative quality expectations.
 - Databricks bundle configuration for deploying and running the notebook chain as a workflow job.
 - Optional Unity Catalog volume-backed raw, checkpoint and schema paths for bronze ingestion.
 - GitHub Actions deployment with Dockerized validation, bundle diff, dev/prod deployment gates and reporting query publication.
@@ -186,7 +192,7 @@ The repository starts from a compact, reviewable baseline:
 
 This project supports the following explanation:
 
-> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, SQL outputs, a BI-ready gold layer, transparent forecast validation, declarative quality expectations and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
+> I created a small Databricks Lakehouse project using bronze, silver and gold layers, Auto Loader for incremental cloud-file ingestion, Delta tables, validation checks, a dimensional warehouse, governed SQL outputs, transparent forecast validation, declarative quality expectations and a Databricks workflow job configuration. I version-controlled the work through GitHub to mirror proper engineering practice.
 
 ## Next Improvements
 
