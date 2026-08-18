@@ -13,10 +13,9 @@ resources:
           level: CAN_VIEW
         - service_principal_name: ${var.ci_service_principal_name}
           level: CAN_MANAGE
-      development: true
       continuous: false
       channel: CURRENT
-      edition: CORE
+      edition: ADVANCED
       photon: false
       clusters:
         - label: default

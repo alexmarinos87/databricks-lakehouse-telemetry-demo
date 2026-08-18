@@ -97,10 +97,35 @@ targets:
   dev:
     mode: development
     default: true
+    presets:
+      name_prefix: ""
+      pipelines_development: true
+      trigger_pause_status: PAUSED
+    variables:
+      schema: lakehouse_demo_dev
+      source_path: dbfs:/FileStore/lakehouse_demo/dev/raw_machine_events
+      checkpoint_path: dbfs:/FileStore/lakehouse_demo/dev/_checkpoints/bronze_machine_events
+      schema_location: dbfs:/FileStore/lakehouse_demo/dev/_schemas/bronze_machine_events
+      unity_catalog_volume: lakehouse_demo_dev_files
+      azure_source_path: lakehouse_demo/dev/raw_machine_events
+      azure_checkpoint_path: lakehouse_demo/dev/_checkpoints/bronze_machine_events
+      azure_schema_location: lakehouse_demo/dev/_schemas/bronze_machine_events
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
 
   prod:
     mode: production
+    presets:
+      name_prefix: ""
+      pipelines_development: false
+    variables:
+      schema: lakehouse_demo_prod
+      source_path: dbfs:/FileStore/lakehouse_demo/prod/raw_machine_events
+      checkpoint_path: dbfs:/FileStore/lakehouse_demo/prod/_checkpoints/bronze_machine_events
+      schema_location: dbfs:/FileStore/lakehouse_demo/prod/_schemas/bronze_machine_events
+      unity_catalog_volume: lakehouse_demo_prod_files
+      azure_source_path: lakehouse_demo/prod/raw_machine_events
+      azure_checkpoint_path: lakehouse_demo/prod/_checkpoints/bronze_machine_events
+      azure_schema_location: lakehouse_demo/prod/_schemas/bronze_machine_events
     workspace:
       root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
