@@ -2,12 +2,47 @@
 # MAGIC %md
 # MAGIC # 02 - Silver transform
 # MAGIC
-# MAGIC Clean, type, deduplicate and validate raw machine event data.
+# MAGIC Clean, type, quarantine, deduplicate and validate raw machine event data using the same DataFrame functions executed in local Spark CI.
 
 # COMMAND ----------
 
-from pyspark.sql import Window
-from pyspark.sql import functions as F
+import sys
+from pathlib import Path, PurePosixPath
+
+
+def _add_project_src_to_path():
+    cwd = Path.cwd()
+    for base_path in [cwd, *cwd.parents]:
+        src_path = base_path / "src"
+        if src_path.exists():
+            sys.path.insert(0, str(src_path))
+            return
+
+    try:
+        notebook_path = (
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .notebookPath()
+            .get()
+        )
+        workspace_root = PurePosixPath(notebook_path).parent.parent
+        workspace_root_text = str(workspace_root)
+        if not workspace_root_text.startswith("/Workspace/"):
+            workspace_root_text = str(
+                Path("/Workspace") / workspace_root_text.lstrip("/")
+            )
+        sys.path.insert(0, str(Path(workspace_root_text) / "src"))
+    except Exception:
+        return
+
+
+_add_project_src_to_path()
+
+from lakehouse_demo.spark_medallion import (  # noqa: E402
+    build_silver_frames,
+    reconcile_silver,
+)
 
 # COMMAND ----------
 
@@ -24,61 +59,23 @@ quarantine_table = f"{catalog}.{schema}.silver_quarantine_machine_events"
 # COMMAND ----------
 
 bronze = spark.table(bronze_table)
+silver_frames = build_silver_frames(bronze)
+silver = silver_frames["silver"]
+quarantine = silver_frames["quarantine"]
 
-typed = (
-    bronze.withColumn("event_ts_utc", F.to_timestamp("event_ts"))
-    .withColumn("event_date", F.to_date("event_ts_utc"))
-    .withColumn("hour_meter", F.col("hour_meter").cast("double"))
-    .withColumn("temperature_c", F.col("temperature_c").cast("double"))
-    .withColumn("vibration_mm_s", F.col("vibration_mm_s").cast("double"))
-    .withColumn("fuel_level_pct", F.col("fuel_level_pct").cast("double"))
-    .withColumn("duration_minutes", F.col("duration_minutes").cast("int"))
-    .withColumn("downtime_minutes", F.col("downtime_minutes").cast("int"))
-    .withColumn("maintenance_cost_gbp", F.col("maintenance_cost_gbp").cast("double"))
-    .withColumn("part_quantity", F.col("part_quantity").cast("int"))
-    .withColumn("event_type", F.lower(F.trim("event_type")))
-    .withColumn("status", F.upper(F.trim("status")))
-    .withColumn("severity", F.lower(F.trim("severity")))
-    .withColumn("part_code", F.upper(F.trim("part_code")))
-    .withColumn("fault_code", F.upper(F.trim("fault_code")))
-)
-
-required_columns = ["event_id", "machine_id", "event_ts_utc", "site_id", "client_id"]
-is_valid = F.lit(True)
-for column_name in required_columns:
-    is_valid = is_valid & F.col(column_name).isNotNull() & (F.length(F.trim(F.col(column_name).cast("string"))) > 0)
-
-valid = typed.where(is_valid)
-quarantine = typed.where(~is_valid).withColumn(
-    "quarantine_reason",
-    F.lit("Missing one or more required business keys"),
-)
-
-# COMMAND ----------
-
-dedupe_window = Window.partitionBy("event_id").orderBy(F.col("_ingested_at").desc(), F.col("_source_file").desc())
-
-silver = (
-    valid.withColumn("_dedupe_rank", F.row_number().over(dedupe_window))
-    .where(F.col("_dedupe_rank") == 1)
-    .drop("_dedupe_rank")
-    .withColumn(
-        "is_failure_event",
-        (F.col("status") == F.lit("FAULT")) | ((F.col("fault_code").isNotNull()) & (F.col("fault_code") != F.lit("OK"))),
+reconciliation = reconcile_silver(bronze, silver, quarantine)
+if not reconciliation.is_reconciled:
+    raise ValueError(
+        "Silver publication does not reconcile Bronze, quarantine, and "
+        "deduplicated replay rows"
     )
-    .withColumn(
-        "health_score",
-        F.greatest(
-            F.lit(0),
-            F.lit(100)
-            - F.when(F.col("temperature_c") > 90, 20).otherwise(0)
-            - F.when(F.col("vibration_mm_s") > 6, 25).otherwise(0)
-            - F.when(F.col("fuel_level_pct") < 20, 10).otherwise(0)
-            - F.when(F.col("status") == "FAULT", 30).otherwise(0),
-        ),
-    )
-    .withColumn("maintenance_cost_gbp", F.coalesce(F.col("maintenance_cost_gbp"), F.lit(0.0)))
-    .withColumn("part_quantity", F.coalesce(F.col("part_quantity"), F.lit(0)))
+
+print(
+    "Silver reconciliation: "
+    f"bronze={reconciliation.bronze_rows}, "
+    f"silver={reconciliation.silver_rows}, "
+    f"quarantine={reconciliation.quarantine_rows}, "
+    f"deduplicated={reconciliation.deduplicated_rows}"
 )
 
 # COMMAND ----------
