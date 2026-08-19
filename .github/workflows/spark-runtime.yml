@@ -1,0 +1,49 @@
+name: Spark Runtime
+
+on:
+  pull_request:
+    paths:
+      - "src/lakehouse_demo/spark_*.py"
+      - "notebooks/*.py"
+      - "tests_runtime/**"
+      - "Dockerfile.spark-ci"
+      - "requirements-spark.txt"
+      - "scripts/run_spark_runtime_checks.sh"
+      - ".github/workflows/spark-runtime.yml"
+      - "docs/spark_runtime_evidence.md"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lakehouse_demo/spark_*.py"
+      - "notebooks/*.py"
+      - "tests_runtime/**"
+      - "Dockerfile.spark-ci"
+      - "requirements-spark.txt"
+      - "scripts/run_spark_runtime_checks.sh"
+      - ".github/workflows/spark-runtime.yml"
+      - "docs/spark_runtime_evidence.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spark-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build Spark runtime image
+        run: docker build -f Dockerfile.spark-ci -t lakehouse-demo-spark-ci .
+
+      - name: Execute Spark runtime contracts
+        run: docker run --rm --cpus=2 --memory=4g lakehouse-demo-spark-ci
