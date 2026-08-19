@@ -1,29 +1,31 @@
 name: Deploy Databricks Bundle
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       target:
-        description: Bundle target to deploy.
+        description: Bundle target to validate, plan, and optionally deploy.
         required: true
         type: choice
         options:
           - dev
           - prod
         default: dev
+      apply_changes:
+        description: Apply the reviewed plan. Leave disabled for validate-and-plan only.
+        required: true
+        type: boolean
+        default: false
       run_workflow:
         description: Run the lakehouse workflow after deployment.
         required: true
         type: boolean
-        default: true
+        default: false
       upload_sample_data:
         description: Upload synthetic sample data before running the workflow.
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -59,7 +61,7 @@ jobs:
   diff-dev:
     name: Diff dev
     needs: test
-    if: github.event_name == 'push' || github.event.inputs.target == 'dev'
+    if: github.event.inputs.target == 'dev'
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -100,7 +102,7 @@ jobs:
   deploy-dev:
     name: Deploy dev
     needs: diff-dev
-    if: github.event_name == 'push' || github.event.inputs.target == 'dev'
+    if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true'
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -140,7 +142,7 @@ jobs:
             --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
 
       - name: Upload sample data
-        if: github.event_name == 'push' || github.event.inputs.upload_sample_data == 'true'
+        if: github.event.inputs.upload_sample_data == 'true'
         run: |
           databricks fs mkdirs "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
           databricks fs cp \
@@ -149,7 +151,7 @@ jobs:
             --overwrite
 
       - name: Run dev workflow
-        if: github.event_name == 'push' || github.event.inputs.run_workflow == 'true'
+        if: github.event.inputs.run_workflow == 'true'
         run: |
           databricks bundle run -t dev lakehouse_demo_workflow \
             --var="catalog=${BUNDLE_CATALOG}" \
@@ -162,7 +164,7 @@ jobs:
             --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
 
       - name: Apply dev reporting table grants
-        if: github.event_name == 'push' || github.event.inputs.run_workflow == 'true'
+        if: github.event.inputs.run_workflow == 'true'
         run: |
           scripts/apply_uc_grants.py \
             --target dev \
@@ -193,7 +195,7 @@ jobs:
   diff-prod:
     name: Diff prod
     needs: test
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
+    if: github.event.inputs.target == 'prod'
     runs-on: ubuntu-latest
     environment: prod
     env:
@@ -234,7 +236,7 @@ jobs:
   deploy-prod:
     name: Deploy prod
     needs: diff-prod
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
+    if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true'
     runs-on: ubuntu-latest
     environment: prod
     env:

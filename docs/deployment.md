@@ -7,9 +7,16 @@ This project deploys Databricks resources with Databricks Asset Bundles and GitH
 Use Databricks-native deployment for this repository:
 
 ```text
-GitHub Actions
-  -> Dockerized local validation
-  -> Databricks bundle validate and plan
+Pull request / main update
+  -> Dockerized repository validation only
+
+Manual deployment dispatch, apply_changes=false
+  -> Dockerized repository validation
+  -> Databricks bundle validate
+  -> Databricks bundle plan
+  -> human plan review
+
+Manual deployment dispatch, apply_changes=true
   -> Databricks bundle deploy
   -> optional sample-data upload
   -> optional workflow run
@@ -18,6 +25,8 @@ GitHub Actions
 
 Kubernetes is not part of this deployment because the project does not run a long-lived external service. Docker is used only to make the validation environment repeatable in CI.
 
+A merge to `main` never deploys Databricks resources. Validation and planning are explicit workflow-dispatch operations, and applying changes requires the separate `apply_changes` input.
+
 ## GitHub Environments
 
 Create two GitHub environments:
@@ -25,7 +34,7 @@ Create two GitHub environments:
 - `dev`
 - `prod`
 
-Require reviewers on the `prod` environment. This gives the production deployment manual approval without adding approval logic to the workflow file.
+Require reviewers on the `prod` environment. A reviewer gate can also be applied to `dev` when the shared CI development workspace is sensitive.
 
 ## GitHub Secrets
 
@@ -114,15 +123,18 @@ After that bootstrap, the bundle and post-deploy scripts keep project permission
 
 ## Deploy Flow
 
-Pull requests and pushes run Dockerized local checks. Pushes to `main` deploy the `dev` target.
-
-Production is manual:
+Pull requests and pushes run Dockerized repository checks only. Databricks validation, planning and deployment are manual:
 
 1. Open the GitHub Actions workflow named `Deploy Databricks Bundle`.
 2. Click `Run workflow`.
-3. Select `prod`.
-4. Choose whether to upload sample data and run the lakehouse workflow.
-5. Approve the `prod` environment deployment.
+3. Select `dev` or `prod`.
+4. Leave `apply_changes` disabled and run the workflow.
+5. Review the completed `bundle validate` and `bundle plan` output for the selected target.
+6. Re-run the workflow for the same commit and target with `apply_changes` enabled only after accepting that plan.
+7. Choose whether to upload sample data and run the lakehouse workflow. Both options default to disabled.
+8. Complete any configured environment approval.
+
+The workflow does not cryptographically bind the second dispatch to the first plan. The operator must select the same commit and target, and GitHub environment protection should be used as the human control.
 
 ## Databricks Results
 
