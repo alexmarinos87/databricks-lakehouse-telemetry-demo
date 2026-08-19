@@ -173,6 +173,15 @@ scripts/run_local_checks.sh
 
 These checks do not replace running the notebooks in Databricks. They catch basic syntax issues and sample-data contract drift before pushing changes.
 
+For an AI-assisted change, use the stricter acceptance gate and generate a review package:
+
+```bash
+scripts/run_acceptance_checks.sh
+python3 scripts/generate_review_package.py --base origin/main --output .review/review-package.md
+```
+
+See the [AI-assisted delivery workflow](docs/ai_delivery_workflow.md) for bounded change briefs, independent/adversarial reviews and the human-only acceptance gate. Current unresolved operational findings are recorded in the [engineering risk register](docs/engineering_risk_register.md). Passing agents and automation provide evidence; they do not authorize merge.
+
 ## Starter Baseline
 
 The repository starts from a compact, reviewable baseline:
