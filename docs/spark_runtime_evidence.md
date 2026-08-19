@@ -30,6 +30,22 @@ This matches the repository's Databricks Runtime 15.4 LTS Spark major/minor line
 
 The replay scenario uses a second immutable source-file name with a later ingestion timestamp. It proves transformation-level deduplication. It does **not** prove that Auto Loader reprocesses a corrected file delivered under the same object name and checkpoint.
 
+## Warehouse evidence
+
+`tests_runtime/test_spark_warehouse_runtime.py` executes dimensional warehouse construction and an independent Spark audit over bounded Gold fixtures. It proves:
+
+1. Gold uptime rows reconcile one-for-one to daily uptime facts;
+2. Gold failure rows reconcile one-for-one to event-grain failure facts;
+3. date, machine, client, site, model, and fault dimensions contain the expected members;
+4. fact grains are unique and required dimension keys are non-null;
+5. machine assignments are derived from both uptime and failure sources, so a failure-only machine is represented;
+6. conflicting client/site/model assignments for one machine fail construction rather than selecting an arbitrary row;
+7. removing a dimension member produces an `unmatched_dimension_key` finding;
+8. duplicating a fact produces both grain and source-count findings;
+9. missing required warehouse datasets and empty uptime input fail closed.
+
+The audit checks aggregate count parity, duplicate grains, null foreign keys, and unmatched foreign keys. Equal source and fact counts do not alone prove row identity; full natural-key reconciliation remains a separate improvement.
+
 ## Evidence boundary
 
 Passing this workflow demonstrates executable Spark DataFrame semantics for the shared pure transformations. It does not demonstrate:
