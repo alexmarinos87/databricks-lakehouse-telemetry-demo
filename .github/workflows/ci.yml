@@ -2,18 +2,46 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Build validation image
         run: docker build -f Dockerfile.ci -t lakehouse-demo-ci .
 
       - name: Run validation image
         run: docker run --rm lakehouse-demo-ci
+
+      - name: Generate review package
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          CANDIDATE_HEAD: ${{ github.event.pull_request.head.sha }}
+          TESTED_CHECKOUT: ${{ github.sha }}
+          VALIDATION_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/generate_review_package.py \
+            --base "${BASE_REF}" \
+            --head "${CANDIDATE_HEAD}" \
+            --tested-ref "${TESTED_CHECKOUT}" \
+            --validation-status "${VALIDATION_STATUS}" \
+            --output review-package.md
+
+      - name: Publish review package summary
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        run: cat review-package.md >> "${GITHUB_STEP_SUMMARY}"

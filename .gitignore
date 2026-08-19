@@ -19,5 +19,7 @@ derby.log
 # Data outputs generated while experimenting
 tmp/
 output/
+.review/
+review-package.md
 *.parquet/
 *.delta/
