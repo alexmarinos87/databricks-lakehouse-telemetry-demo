@@ -68,12 +68,8 @@ dbutils.widgets.text(
 dbutils.widgets.text("unity_catalog_volume", "")
 dbutils.widgets.text("create_unity_catalog_volume", "true")
 dbutils.widgets.text("volume_source_path", "raw_machine_events")
-dbutils.widgets.text(
-    "volume_checkpoint_path", "_checkpoints/bronze_machine_events"
-)
-dbutils.widgets.text(
-    "volume_schema_location", "_schemas/bronze_machine_events"
-)
+dbutils.widgets.text("volume_checkpoint_path", "_checkpoints/bronze_machine_events")
+dbutils.widgets.text("volume_schema_location", "_schemas/bronze_machine_events")
 dbutils.widgets.text("azure_storage_account", "")
 dbutils.widgets.text("azure_container", "")
 dbutils.widgets.text(
