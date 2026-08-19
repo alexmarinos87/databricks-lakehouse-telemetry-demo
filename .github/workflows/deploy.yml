@@ -36,9 +36,6 @@ env:
   DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
   DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
   DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-  BUNDLE_CATALOG: ${{ vars.DATABRICKS_CATALOG || 'main' }}
-  BUNDLE_SCHEMA: ${{ vars.DATABRICKS_SCHEMA || 'lakehouse_demo' }}
-  UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_VOLUME || 'lakehouse_demo_files' }}
   NODE_TYPE_ID: ${{ vars.DATABRICKS_NODE_TYPE_ID || 'i3.xlarge' }}
   ADMIN_GROUP_NAME: ${{ vars.DATABRICKS_ADMIN_GROUP || 'lakehouse-demo-admins' }}
   ENGINEER_GROUP_NAME: ${{ vars.DATABRICKS_ENGINEER_GROUP || 'lakehouse-demo-engineers' }}
@@ -65,6 +62,10 @@ jobs:
     if: github.event_name == 'push' || github.event.inputs.target == 'dev'
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
+      BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
+      UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -102,6 +103,10 @@ jobs:
     if: github.event_name == 'push' || github.event.inputs.target == 'dev'
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
+      BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
+      UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -191,6 +196,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
     runs-on: ubuntu-latest
     environment: prod
+    env:
+      BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
+      BUNDLE_SCHEMA: ${{ vars.DATABRICKS_PROD_SCHEMA || 'lakehouse_demo_prod' }}
+      UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -228,6 +237,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod'
     runs-on: ubuntu-latest
     environment: prod
+    env:
+      BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
+      BUNDLE_SCHEMA: ${{ vars.DATABRICKS_PROD_SCHEMA || 'lakehouse_demo_prod' }}
+      UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

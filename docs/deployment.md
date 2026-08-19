@@ -41,18 +41,45 @@ The service principal should be a member of the deployment group configured by `
 
 ## GitHub Variables
 
-Set these repository or environment variables when the defaults do not match the workspace:
+The workflow uses separate catalog, schema and volume settings for each target. Set these repository or environment variables when the defaults do not match the workspace:
 
 ```text
-DATABRICKS_CATALOG=main
-DATABRICKS_SCHEMA=lakehouse_demo
-DATABRICKS_VOLUME=lakehouse_demo_files
+DATABRICKS_DEV_CATALOG=main
+DATABRICKS_DEV_SCHEMA=lakehouse_demo_dev
+DATABRICKS_DEV_VOLUME=lakehouse_demo_dev_files
+
+DATABRICKS_PROD_CATALOG=main
+DATABRICKS_PROD_SCHEMA=lakehouse_demo_prod
+DATABRICKS_PROD_VOLUME=lakehouse_demo_prod_files
+
 DATABRICKS_NODE_TYPE_ID=i3.xlarge
 DATABRICKS_ADMIN_GROUP=lakehouse-demo-admins
 DATABRICKS_ENGINEER_GROUP=lakehouse-demo-engineers
 DATABRICKS_ANALYST_GROUP=lakehouse-demo-analysts
 DATABRICKS_CI_SERVICE_PRINCIPAL=lakehouse-demo-ci
 ```
+
+`DATABRICKS_CATALOG` remains an optional shared fallback for the two catalog variables. The workflow deliberately does not fall back to the former shared `DATABRICKS_SCHEMA` or `DATABRICKS_VOLUME` variables because that could make development and production write to the same schema or managed volume.
+
+## Target Isolation Contract
+
+The committed bundle defaults keep development and production writable state separate:
+
+| State surface | Development | Production |
+| --- | --- | --- |
+| Schema | `lakehouse_demo_dev` | `lakehouse_demo_prod` |
+| Managed volume | `lakehouse_demo_dev_files` | `lakehouse_demo_prod_files` |
+| DBFS source root | `dbfs:/FileStore/lakehouse_demo/dev/` | `dbfs:/FileStore/lakehouse_demo/prod/` |
+| Direct ADLS root | `lakehouse_demo/dev/` | `lakehouse_demo/prod/` |
+| Pipeline mode | Development | Production |
+
+The workflow selects the matching target-specific catalog, schema and volume before `validate`, `plan`, `deploy`, sample upload, workflow execution, grants and SQL query publication. Command-line bundle variables have higher precedence than target defaults, so the workflow values must remain target-specific.
+
+Development mode normally adds a user-specific resource-name prefix. This bundle explicitly clears that prefix because its post-deploy grant and query helpers resolve the deterministic resource names already containing `${bundle.target}`. This makes the CI development deployment a shared, deterministic target rather than a per-developer sandbox. Personal experiments should use a separate target instead of reusing `dev`.
+
+The declarative quality pipeline uses the `ADVANCED` edition because it defines expectations. Its development flag is controlled by the target presets rather than being fixed in the resource definition.
+
+Static repository tests verify this contract. They do not prove the effective Databricks plan, workspace permissions, existing resource state or a successful pipeline refresh. Before the first deployment after this change, inspect both rendered plans and confirm that no target override or GitHub variable collapses the two writable namespaces.
 
 ## Least-Privilege Model
 
