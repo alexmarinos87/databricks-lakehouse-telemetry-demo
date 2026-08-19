@@ -1,0 +1,20 @@
+FROM python:3.11-slim-bookworm@sha256:b18992999dbe963a45a8a4da40ac2b1975be1a776d939d098c647482bcad5cba
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    PYSPARK_PYTHON=python3 \
+    SPARK_LOCAL_IP=127.0.0.1
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes openjdk-17-jre-headless procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY requirements-spark.txt .
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements-spark.txt
+
+COPY . .
+RUN chmod +x scripts/run_spark_runtime_checks.sh
+
+CMD ["./scripts/run_spark_runtime_checks.sh"]

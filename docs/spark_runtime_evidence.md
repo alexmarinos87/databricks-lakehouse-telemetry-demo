@@ -1,0 +1,44 @@
+# Local Spark Runtime Evidence
+
+The standard repository suite validates Python syntax, source contracts, review evidence, and committed fixtures without installing Spark. The separate `Spark Runtime` workflow executes the shared transformation functions in a real local Apache Spark process.
+
+## Runtime alignment
+
+The runtime image uses:
+
+- Python 3.11;
+- Apache PySpark 3.5.0;
+- Java 17;
+- UTC Spark session semantics;
+- a pinned Python Bookworm image digest;
+- hash-verified Python packages.
+
+This matches the repository's Databricks Runtime 15.4 LTS Spark major/minor line more closely than source-text inspection alone. It is still local open-source Spark rather than a Databricks cluster.
+
+## Medallion evidence
+
+`tests_runtime/test_spark_medallion_runtime.py` creates source-shaped Bronze rows with explicit ingestion timestamps and source-file lineage. It then executes the shared DataFrame functions and proves:
+
+1. the Bronze schema is ordered and source-shaped;
+2. malformed required keys enter quarantine;
+3. accepted, quarantined, and deduplicated rows reconcile to the Bronze count;
+4. the latest delivery of one event ID wins deterministically;
+5. strings are normalized and operational measures receive Spark types;
+6. a late event remains present in Silver and Gold outputs;
+7. failure and parts outputs contain the expected event grain;
+8. missing lineage input fails closed.
+
+The replay scenario uses a second immutable source-file name with a later ingestion timestamp. It proves transformation-level deduplication. It does **not** prove that Auto Loader reprocesses a corrected file delivered under the same object name and checkpoint.
+
+## Evidence boundary
+
+Passing this workflow demonstrates executable Spark DataFrame semantics for the shared pure transformations. It does not demonstrate:
+
+- Auto Loader discovery, checkpoint, or schema-location behaviour;
+- Delta transaction, overwrite, schema-evolution, or table-history behaviour;
+- Unity Catalog permissions, volumes, or effective identities;
+- Databricks Asset Bundle rendering or deployment;
+- Lakeflow expectations or event-log publication;
+- cloud storage, cluster policy, cost, or recovery behaviour.
+
+Authenticated Databricks validation and plan evidence, followed by a deliberately approved development run, remain separate controls.
