@@ -4,66 +4,71 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = REPO_ROOT / "notebooks" / "07_warehouse_model.py"
+WAREHOUSE_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "spark_warehouse.py"
 WORKFLOW = REPO_ROOT / "resources" / "lakehouse_workflow.yml"
 
 
 class WarehouseModelContractTest(unittest.TestCase):
-    def test_star_schema_is_built_from_gold(self):
+    def test_notebook_delegates_to_shared_construction_and_audit(self):
         notebook = NOTEBOOK.read_text(encoding="utf-8")
 
+        self.assertIn("build_warehouse_frames", notebook)
+        self.assertIn("audit_warehouse", notebook)
         self.assertIn("gold_machine_uptime", notebook)
-        self.assertIn("dim_client", notebook)
-        self.assertIn("dim_date", notebook)
-        self.assertIn("dim_machine", notebook)
-        self.assertIn("dim_model", notebook)
-        self.assertIn("dim_site", notebook)
-        self.assertIn("fact_machine_uptime_daily", notebook)
-        self.assertIn("uptime_fact_key", notebook)
-        self.assertIn('"downtime_pct"', notebook)
-        self.assertIn('"idle_pct"', notebook)
-        self.assertIn(
-            'F.col("idle_minutes") / F.col("observed_minutes")',
-            notebook,
-        )
-        self.assertIn('"maintenance_pct"', notebook)
-        self.assertIn(
-            'F.col("maintenance_minutes") / F.col("observed_minutes")',
-            notebook,
-        )
-        self.assertIn('F.col("observed_minutes") > 0', notebook)
-        self.assertIn(
-            'F.xxhash64("event_date", "machine_id")',
-            notebook,
-        )
-        self.assertIn('F.xxhash64("client_id")', notebook)
-        self.assertIn('F.xxhash64("machine_id")', notebook)
-        self.assertIn('F.xxhash64("model")', notebook)
-        self.assertIn('F.xxhash64("client_id", "site_id")', notebook)
-        self.assertIn('F.date_format("date_day", "yyyyMMdd").cast("int")', notebook)
-        self.assertIn('F.date_format("date_day", "yyyyMM").cast("int")', notebook)
-        self.assertIn('F.date_format("date_day", "yyyy-MM")', notebook)
-        self.assertIn('F.dayofweek("date_day")', notebook)
-        self.assertIn('F.date_format("date_day", "EEEE")', notebook)
-        self.assertIn('"is_weekend"', notebook)
-        self.assertIn('dates.select("date_day", "date_key")', notebook)
-        self.assertIn(
-            'sites.select("site_id", "client_id", "site_key")',
-            notebook,
-        )
-        self.assertIn('clients.select("client_id", "client_key")', notebook)
-        self.assertIn('models.select("model", "model_key")', notebook)
-
-    def test_failure_star_schema_is_built_from_gold_failures(self):
-        notebook = NOTEBOOK.read_text(encoding="utf-8")
-
         self.assertIn("gold_failure_events", notebook)
-        self.assertIn("dim_fault", notebook)
+        self.assertIn("fact_machine_uptime_daily", notebook)
         self.assertIn("fact_machine_failure_event", notebook)
-        self.assertIn('F.xxhash64("fault_code", "severity")', notebook)
-        self.assertIn('F.xxhash64("event_id")', notebook)
-        self.assertIn('"failure_event_count", F.lit(1)', notebook)
-        self.assertIn('"maintenance_cost_gbp"', notebook)
-        self.assertIn('"part_quantity"', notebook)
+        self.assertLess(
+            notebook.index("findings = audit_warehouse("),
+            notebook.index(".saveAsTable("),
+        )
+
+    def test_shared_module_builds_the_uptime_star_schema(self):
+        module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
+
+        for dataset_name in (
+            "dim_client",
+            "dim_date",
+            "dim_machine",
+            "dim_model",
+            "dim_site",
+            "fact_machine_uptime_daily",
+        ):
+            self.assertIn(f'"{dataset_name}"', module)
+
+        self.assertIn('F.xxhash64("event_date", "machine_id")', module)
+        self.assertIn('F.xxhash64("client_id")', module)
+        self.assertIn('F.xxhash64("machine_id")', module)
+        self.assertIn('F.xxhash64("model")', module)
+        self.assertIn('F.xxhash64("client_id", "site_id")', module)
+        self.assertIn('F.date_format("date_day", "yyyyMMdd")', module)
+        self.assertIn('F.date_format("date_day", "yyyyMM")', module)
+        self.assertIn('F.date_format("date_day", "yyyy-MM")', module)
+        self.assertIn('F.dayofweek("date_day")', module)
+        self.assertIn('F.date_format("date_day", "EEEE")', module)
+        self.assertIn('"is_weekend"', module)
+        self.assertIn('"uptime_fact_key"', module)
+        self.assertIn('"downtime_pct"', module)
+        self.assertIn('"idle_pct"', module)
+        self.assertIn('"maintenance_pct"', module)
+        self.assertIn('F.col("observed_minutes") > 0', module)
+
+    def test_shared_module_builds_and_audits_failure_facts(self):
+        module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
+
+        self.assertIn('"dim_fault"', module)
+        self.assertIn('"fact_machine_failure_event"', module)
+        self.assertIn('F.xxhash64("fault_code", "severity")', module)
+        self.assertIn('F.xxhash64("event_id")', module)
+        self.assertIn('"failure_event_count", F.lit(1)', module)
+        self.assertIn('"maintenance_cost_gbp"', module)
+        self.assertIn('"part_quantity"', module)
+        self.assertIn("source_fact_count_mismatch", module)
+        self.assertIn("duplicate_fact_grain", module)
+        self.assertIn("null_dimension_key", module)
+        self.assertIn("unmatched_dimension_key", module)
+        self.assertIn('"left_anti"', module)
+        self.assertIn("conflicting machine assignments", module)
 
     def test_warehouse_runs_between_gold_and_quality(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

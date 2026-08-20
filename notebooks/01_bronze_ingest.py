@@ -11,7 +11,6 @@ import sys
 from pathlib import Path, PurePosixPath
 
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructField, StructType, StringType
 
 
 def _add_project_src_to_path():
@@ -33,7 +32,9 @@ def _add_project_src_to_path():
         workspace_root = PurePosixPath(notebook_path).parent.parent
         workspace_root_text = str(workspace_root)
         if not workspace_root_text.startswith("/Workspace/"):
-            workspace_root_text = str(Path("/Workspace") / workspace_root_text.lstrip("/"))
+            workspace_root_text = str(
+                Path("/Workspace") / workspace_root_text.lstrip("/")
+            )
         sys.path.insert(0, str(Path(workspace_root_text) / "src"))
     except Exception:
         return
@@ -47,14 +48,23 @@ from lakehouse_demo.azure_ingestion import (  # noqa: E402
     quote_sql_identifier,
     resolve_ingestion_paths,
 )
+from lakehouse_demo.spark_medallion import raw_machine_event_schema  # noqa: E402
 
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "main")
 dbutils.widgets.text("schema", "lakehouse_demo")
-dbutils.widgets.text("source_path", "dbfs:/FileStore/lakehouse_demo/raw_machine_events")
-dbutils.widgets.text("checkpoint_path", "dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events")
-dbutils.widgets.text("schema_location", "dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events")
+dbutils.widgets.text(
+    "source_path", "dbfs:/FileStore/lakehouse_demo/raw_machine_events"
+)
+dbutils.widgets.text(
+    "checkpoint_path",
+    "dbfs:/FileStore/lakehouse_demo/_checkpoints/bronze_machine_events",
+)
+dbutils.widgets.text(
+    "schema_location",
+    "dbfs:/FileStore/lakehouse_demo/_schemas/bronze_machine_events",
+)
 dbutils.widgets.text("unity_catalog_volume", "")
 dbutils.widgets.text("create_unity_catalog_volume", "true")
 dbutils.widgets.text("volume_source_path", "raw_machine_events")
@@ -62,9 +72,15 @@ dbutils.widgets.text("volume_checkpoint_path", "_checkpoints/bronze_machine_even
 dbutils.widgets.text("volume_schema_location", "_schemas/bronze_machine_events")
 dbutils.widgets.text("azure_storage_account", "")
 dbutils.widgets.text("azure_container", "")
-dbutils.widgets.text("azure_source_path", "lakehouse_demo/raw_machine_events")
-dbutils.widgets.text("azure_checkpoint_path", "lakehouse_demo/_checkpoints/bronze_machine_events")
-dbutils.widgets.text("azure_schema_location", "lakehouse_demo/_schemas/bronze_machine_events")
+dbutils.widgets.text(
+    "azure_source_path", "lakehouse_demo/raw_machine_events"
+)
+dbutils.widgets.text(
+    "azure_checkpoint_path", "lakehouse_demo/_checkpoints/bronze_machine_events"
+)
+dbutils.widgets.text(
+    "azure_schema_location", "lakehouse_demo/_schemas/bronze_machine_events"
+)
 dbutils.widgets.text("azure_tenant_id", "")
 dbutils.widgets.text("azure_client_id", "")
 dbutils.widgets.text("azure_client_secret_scope", "")
@@ -73,15 +89,25 @@ dbutils.widgets.text("azure_client_secret_key", "")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 unity_catalog_volume = dbutils.widgets.get("unity_catalog_volume").strip()
-create_unity_catalog_volume = dbutils.widgets.get("create_unity_catalog_volume").strip().lower() == "true"
+create_unity_catalog_volume = (
+    dbutils.widgets.get("create_unity_catalog_volume").strip().lower() == "true"
+)
 
-azure_client_secret_scope = dbutils.widgets.get("azure_client_secret_scope").strip()
+azure_client_secret_scope = dbutils.widgets.get(
+    "azure_client_secret_scope"
+).strip()
 azure_client_secret_key = dbutils.widgets.get("azure_client_secret_key").strip()
 azure_client_secret = ""
 if azure_client_secret_scope or azure_client_secret_key:
     if not azure_client_secret_scope or not azure_client_secret_key:
-        raise ValueError("Both azure_client_secret_scope and azure_client_secret_key are required together")
-    azure_client_secret = dbutils.secrets.get(scope=azure_client_secret_scope, key=azure_client_secret_key)
+        raise ValueError(
+            "Both azure_client_secret_scope and azure_client_secret_key "
+            "are required together"
+        )
+    azure_client_secret = dbutils.secrets.get(
+        scope=azure_client_secret_scope,
+        key=azure_client_secret_key,
+    )
 
 ingestion_config = AzureIngestionConfig(
     catalog=catalog,
@@ -119,38 +145,20 @@ schema_identifier = quote_sql_identifier(catalog, schema)
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_identifier}")
 
 if unity_catalog_volume and create_unity_catalog_volume:
-    volume_identifier = quote_sql_identifier(catalog, schema, unity_catalog_volume)
+    volume_identifier = quote_sql_identifier(
+        catalog,
+        schema,
+        unity_catalog_volume,
+    )
     spark.sql(
         f"CREATE VOLUME IF NOT EXISTS {volume_identifier} "
-        "COMMENT 'Managed volume for lakehouse demo ingestion files and Auto Loader state'"
+        "COMMENT 'Managed volume for lakehouse demo ingestion files and "
+        "Auto Loader state'"
     )
 
 # COMMAND ----------
 
-raw_schema = StructType(
-    [
-        StructField("event_id", StringType(), True),
-        StructField("machine_id", StringType(), True),
-        StructField("event_ts", StringType(), True),
-        StructField("site_id", StringType(), True),
-        StructField("client_id", StringType(), True),
-        StructField("model", StringType(), True),
-        StructField("hour_meter", StringType(), True),
-        StructField("event_type", StringType(), True),
-        StructField("status", StringType(), True),
-        StructField("fault_code", StringType(), True),
-        StructField("severity", StringType(), True),
-        StructField("temperature_c", StringType(), True),
-        StructField("vibration_mm_s", StringType(), True),
-        StructField("fuel_level_pct", StringType(), True),
-        StructField("duration_minutes", StringType(), True),
-        StructField("downtime_minutes", StringType(), True),
-        StructField("maintenance_cost_gbp", StringType(), True),
-        StructField("part_code", StringType(), True),
-        StructField("part_quantity", StringType(), True),
-        StructField("operator_shift", StringType(), True),
-    ]
-)
+raw_schema = raw_machine_event_schema()
 
 bronze_stream = (
     spark.readStream.format("cloudFiles")

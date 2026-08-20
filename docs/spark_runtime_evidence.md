@@ -15,6 +15,17 @@ The runtime image uses:
 
 This matches the repository's Databricks Runtime 15.4 LTS Spark major/minor line more closely than source-text inspection alone. It is still local open-source Spark rather than a Databricks cluster.
 
+## Notebook wiring
+
+The Databricks notebooks own platform orchestration and persistence, but no longer maintain independent copies of the transformation logic:
+
+- `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
+- `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, and replay counts before writing;
+- `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
+- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse`, and refuses to publish any warehouse table when findings remain.
+
+Repository contracts enforce these call paths and ensure the warehouse audit appears before the first Delta write. As a result, the DataFrame transformations executed by local Spark CI are the same functions the Databricks workflow invokes before persistence.
+
 ## Medallion evidence
 
 `tests_runtime/test_spark_medallion_runtime.py` creates source-shaped Bronze rows with explicit ingestion timestamps and source-file lineage. It then executes the shared DataFrame functions and proves:
