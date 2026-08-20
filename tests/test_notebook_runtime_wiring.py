@@ -39,10 +39,20 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertIn('silver_frames["quarantine"]', notebook)
         self.assertIn("silver_machine_events", notebook)
         self.assertIn("silver_quarantine_machine_events", notebook)
-        self.assertLess(
-            notebook.index("reconcile_silver("),
-            notebook.index(".saveAsTable("),
+        self.assertIn("reconciliation.has_conflicts", notebook)
+        self.assertIn(
+            "Silver publication blocked because conflicting payloads share",
+            notebook,
         )
+
+        reconciliation_position = notebook.index("reconcile_silver(")
+        quarantine_write_position = notebook.index("quarantine.write.format")
+        conflict_gate_position = notebook.index("if reconciliation.has_conflicts:")
+        silver_write_position = notebook.index("silver.write.format")
+
+        self.assertLess(reconciliation_position, quarantine_write_position)
+        self.assertLess(quarantine_write_position, conflict_gate_position)
+        self.assertLess(conflict_gate_position, silver_write_position)
         self.assertNotIn("Window.partitionBy", notebook)
         self.assertNotIn("F.to_timestamp", notebook)
 

@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from lakehouse_demo.spark_medallion import (  # noqa: E402
+    CONFLICTING_EVENT_ID_REASON,
+    INVALID_REQUIRED_KEY_REASON,
     RAW_MACHINE_EVENT_COLUMNS,
     build_gold_frames,
     build_silver_frames,
@@ -68,6 +70,7 @@ class SparkMedallionRuntimeTest(unittest.TestCase):
         schema = raw_machine_event_schema()
         schema.add("_ingested_at", TimestampType(), False)
         schema.add("_source_file", StringType(), False)
+        cls.bronze_schema = schema
 
         rows = [
             _event(),
@@ -155,20 +158,30 @@ class SparkMedallionRuntimeTest(unittest.TestCase):
             {field.dataType.simpleString() for field in schema.fields},
         )
 
-    def test_silver_reconciles_quarantine_and_replay_rows(self) -> None:
+    def test_silver_reconciles_quarantine_and_identical_replay_rows(self) -> None:
         result = reconcile_silver(self.bronze, self.silver, self.quarantine)
 
         self.assertEqual(5, result.bronze_rows)
         self.assertEqual(4, result.valid_rows_before_deduplication)
+        self.assertEqual(1, result.invalid_quarantine_rows)
+        self.assertEqual(0, result.conflicting_quarantine_rows)
         self.assertEqual(1, result.quarantine_rows)
         self.assertEqual(3, result.silver_rows)
         self.assertEqual(1, result.deduplicated_rows)
+        self.assertEqual(0, result.conflicting_event_ids)
+        self.assertFalse(result.has_conflicts)
         self.assertTrue(result.is_reconciled)
 
-    def test_latest_replay_wins_and_values_are_typed_and_normalized(self) -> None:
+    def test_latest_identical_replay_wins_and_has_a_bounded_payload_digest(self) -> None:
         replay = (
             self.silver.where("event_id = 'E1'")
-            .select("_source_file", "status", "event_type", "duration_minutes")
+            .select(
+                "_source_file",
+                "status",
+                "event_type",
+                "duration_minutes",
+                "event_payload_sha256",
+            )
             .collect()[0]
         )
         data_types = dict(self.silver.dtypes)
@@ -177,6 +190,7 @@ class SparkMedallionRuntimeTest(unittest.TestCase):
         self.assertEqual("RUNNING", replay["status"])
         self.assertEqual("telemetry", replay["event_type"])
         self.assertEqual(60, replay["duration_minutes"])
+        self.assertEqual(64, len(replay["event_payload_sha256"]))
         self.assertEqual("int", data_types["duration_minutes"])
         self.assertEqual("double", data_types["temperature_c"])
         self.assertEqual("timestamp", data_types["event_ts_utc"])
@@ -187,9 +201,62 @@ class SparkMedallionRuntimeTest(unittest.TestCase):
         ).collect()[0]
 
         self.assertEqual("E_BAD", row["event_id"])
+        self.assertEqual(INVALID_REQUIRED_KEY_REASON, row["quarantine_reason"])
+
+    def test_conflicting_payloads_are_all_quarantined_and_never_select_a_winner(
+        self,
+    ) -> None:
+        bronze = self.spark.createDataFrame(
+            [
+                _event(
+                    event_id="E_CONFLICT",
+                    _source_file="/landing/010_original.csv",
+                ),
+                _event(
+                    event_id="E_CONFLICT",
+                    duration_minutes="90",
+                    _ingested_at=datetime(2026, 4, 6, 12, 0, 0),
+                    _source_file="/landing/011_conflicting.csv",
+                ),
+                _event(
+                    event_id="E_OK",
+                    machine_id="M9",
+                    _source_file="/landing/012_unique.csv",
+                ),
+            ],
+            schema=self.bronze_schema,
+        )
+        frames = build_silver_frames(bronze)
+        silver = frames["silver"]
+        quarantine = frames["quarantine"]
+        result = reconcile_silver(bronze, silver, quarantine)
+
+        self.assertEqual(3, result.bronze_rows)
+        self.assertEqual(3, result.valid_rows_before_deduplication)
+        self.assertEqual(0, result.invalid_quarantine_rows)
+        self.assertEqual(2, result.conflicting_quarantine_rows)
+        self.assertEqual(2, result.quarantine_rows)
+        self.assertEqual(1, result.silver_rows)
+        self.assertEqual(0, result.deduplicated_rows)
+        self.assertEqual(1, result.conflicting_event_ids)
+        self.assertTrue(result.has_conflicts)
+        self.assertTrue(result.is_reconciled)
+
         self.assertEqual(
-            "Missing or invalid required business key",
-            row["quarantine_reason"],
+            {"E_OK"},
+            {row["event_id"] for row in silver.select("event_id").collect()},
+        )
+        conflict_rows = quarantine.where("event_id = 'E_CONFLICT'").select(
+            "quarantine_reason", "event_payload_sha256"
+        ).collect()
+        self.assertEqual(2, len(conflict_rows))
+        self.assertEqual(
+            {CONFLICTING_EVENT_ID_REASON},
+            {row["quarantine_reason"] for row in conflict_rows},
+        )
+        self.assertEqual(
+            2,
+            len({row["event_payload_sha256"] for row in conflict_rows}),
         )
 
     def test_late_event_is_preserved_and_failure_output_is_exact(self) -> None:

@@ -39,19 +39,33 @@ RAW_MACHINE_EVENT_COLUMNS = (
     "operator_shift",
 )
 
+INVALID_REQUIRED_KEY_REASON = "Missing or invalid required business key"
+CONFLICTING_EVENT_ID_REASON = "Conflicting payloads share the same event ID"
+_EVENT_PAYLOAD_COLUMN = "_event_payload_json"
+_CONFLICT_FLAG_COLUMN = "_is_conflicting_event_id"
+
 
 @dataclass(frozen=True)
 class SilverReconciliation:
     bronze_rows: int
     valid_rows_before_deduplication: int
+    invalid_quarantine_rows: int
+    conflicting_quarantine_rows: int
     quarantine_rows: int
     silver_rows: int
     deduplicated_rows: int
+    conflicting_event_ids: int
+
+    @property
+    def has_conflicts(self) -> bool:
+        return self.conflicting_event_ids > 0
 
     @property
     def is_reconciled(self) -> bool:
         return (
-            self.bronze_rows
+            self.quarantine_rows
+            == self.invalid_quarantine_rows + self.conflicting_quarantine_rows
+            and self.bronze_rows
             == self.silver_rows + self.quarantine_rows + self.deduplicated_rows
         )
 
@@ -73,8 +87,17 @@ def _require_columns(dataframe: DataFrame, required: set[str], *, label: str) ->
         raise ValueError(f"{label} is missing required columns: {', '.join(missing)}")
 
 
+def _source_payload_json():
+    """Return a deterministic JSON representation of the exact source payload."""
+
+    return F.to_json(
+        F.struct(*[F.col(column_name) for column_name in RAW_MACHINE_EVENT_COLUMNS]),
+        {"ignoreNullFields": "false"},
+    )
+
+
 def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
-    """Type, validate, quarantine, deduplicate, and enrich Bronze events."""
+    """Type, validate, classify replays, quarantine conflicts, and enrich events."""
 
     _require_columns(
         bronze,
@@ -83,7 +106,12 @@ def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
     )
 
     typed = (
-        bronze.withColumn("event_ts_utc", F.to_timestamp("event_ts"))
+        bronze.withColumn(_EVENT_PAYLOAD_COLUMN, _source_payload_json())
+        .withColumn(
+            "event_payload_sha256",
+            F.sha2(F.col(_EVENT_PAYLOAD_COLUMN), 256),
+        )
+        .withColumn("event_ts_utc", F.to_timestamp("event_ts"))
         .withColumn("event_date", F.to_date("event_ts_utc"))
         .withColumn("hour_meter", F.col("hour_meter").cast("double"))
         .withColumn("temperature_c", F.col("temperature_c").cast("double"))
@@ -116,10 +144,45 @@ def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
             F.length(F.trim(value.cast("string"))) > 0
         )
 
-    valid = typed.where(is_valid)
-    quarantine = typed.where(~is_valid).withColumn(
-        "quarantine_reason",
-        F.lit("Missing or invalid required business key"),
+    nonblank_event_ids = typed.where(
+        F.col("event_id").isNotNull()
+        & (F.length(F.trim(F.col("event_id"))) > 0)
+    )
+    conflicting_event_ids = (
+        nonblank_event_ids.groupBy("event_id")
+        .agg(
+            F.countDistinct(F.col(_EVENT_PAYLOAD_COLUMN)).alias(
+                "_payload_variant_count"
+            )
+        )
+        .where(F.col("_payload_variant_count") > 1)
+        .select("event_id")
+        .withColumn(_CONFLICT_FLAG_COLUMN, F.lit(True))
+    )
+    classified = (
+        typed.join(conflicting_event_ids, "event_id", "left")
+        .withColumn(
+            _CONFLICT_FLAG_COLUMN,
+            F.coalesce(F.col(_CONFLICT_FLAG_COLUMN), F.lit(False)),
+        )
+    )
+
+    invalid_quarantine = (
+        classified.where(~is_valid)
+        .withColumn(
+            "quarantine_reason",
+            F.lit(INVALID_REQUIRED_KEY_REASON),
+        )
+    )
+    conflicting_quarantine = (
+        classified.where(is_valid & F.col(_CONFLICT_FLAG_COLUMN))
+        .withColumn(
+            "quarantine_reason",
+            F.lit(CONFLICTING_EVENT_ID_REASON),
+        )
+    )
+    replay_candidates = classified.where(
+        is_valid & ~F.col(_CONFLICT_FLAG_COLUMN)
     )
 
     dedupe_window = Window.partitionBy("event_id").orderBy(
@@ -128,9 +191,16 @@ def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
     )
 
     silver = (
-        valid.withColumn("_dedupe_rank", F.row_number().over(dedupe_window))
+        replay_candidates.withColumn(
+            "_dedupe_rank",
+            F.row_number().over(dedupe_window),
+        )
         .where(F.col("_dedupe_rank") == 1)
-        .drop("_dedupe_rank")
+        .drop(
+            "_dedupe_rank",
+            _EVENT_PAYLOAD_COLUMN,
+            _CONFLICT_FLAG_COLUMN,
+        )
         .withColumn(
             "is_failure_event",
             (F.col("status") == F.lit("FAULT"))
@@ -159,28 +229,75 @@ def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
         )
     )
 
+    quarantine = (
+        invalid_quarantine.unionByName(conflicting_quarantine)
+        .withColumnRenamed(
+            _CONFLICT_FLAG_COLUMN,
+            "is_conflicting_event_id",
+        )
+        .drop(_EVENT_PAYLOAD_COLUMN)
+    )
+
     return {"silver": silver, "quarantine": quarantine}
 
 
 def reconcile_silver(
     bronze: DataFrame, silver: DataFrame, quarantine: DataFrame
 ) -> SilverReconciliation:
-    """Materialize counts explaining accepted, quarantined, and replay rows."""
+    """Materialize counts for accepted, invalid, replay, and conflicting rows."""
+
+    _require_columns(
+        quarantine,
+        {
+            "event_id",
+            "quarantine_reason",
+            "is_conflicting_event_id",
+        },
+        label="quarantine",
+    )
 
     bronze_rows = bronze.count()
     quarantine_rows = quarantine.count()
+    conflicting_quarantine_rows = quarantine.where(
+        F.col("quarantine_reason") == CONFLICTING_EVENT_ID_REASON
+    ).count()
+    invalid_quarantine_rows = quarantine.where(
+        F.col("quarantine_reason") == INVALID_REQUIRED_KEY_REASON
+    ).count()
+    conflicting_event_ids = (
+        quarantine.where(F.col("is_conflicting_event_id"))
+        .select("event_id")
+        .distinct()
+        .count()
+    )
     silver_rows = silver.count()
-    valid_rows = bronze_rows - quarantine_rows
-    deduplicated_rows = valid_rows - silver_rows
-    if valid_rows < 0 or deduplicated_rows < 0:
+    valid_rows = bronze_rows - invalid_quarantine_rows
+    deduplicated_rows = (
+        valid_rows - conflicting_quarantine_rows - silver_rows
+    )
+
+    counts = (
+        bronze_rows,
+        quarantine_rows,
+        conflicting_quarantine_rows,
+        conflicting_event_ids,
+        invalid_quarantine_rows,
+        silver_rows,
+        valid_rows,
+        deduplicated_rows,
+    )
+    if any(value < 0 for value in counts):
         raise ValueError("Silver reconciliation produced impossible negative counts")
 
     return SilverReconciliation(
         bronze_rows=bronze_rows,
         valid_rows_before_deduplication=valid_rows,
+        invalid_quarantine_rows=invalid_quarantine_rows,
+        conflicting_quarantine_rows=conflicting_quarantine_rows,
         quarantine_rows=quarantine_rows,
         silver_rows=silver_rows,
         deduplicated_rows=deduplicated_rows,
+        conflicting_event_ids=conflicting_event_ids,
     )
 
 
