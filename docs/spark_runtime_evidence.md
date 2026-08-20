@@ -22,9 +22,9 @@ The Databricks notebooks own platform orchestration and persistence, but no long
 - `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
 - `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, identical replay, and conflicting-payload counts before writing;
 - `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
-- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse`, and refuses to publish any warehouse table when findings remain.
+- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, or natural-identity findings remain.
 
-Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse auditing likewise occurs before the first warehouse Delta write. The DataFrame transformations executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
+Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse publication auditing likewise occurs before the first warehouse Delta write. The DataFrame transformations executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
 
 ## Medallion evidence
 
@@ -47,7 +47,7 @@ The replay scenario uses a second immutable source-file name with a later ingest
 
 ## Warehouse evidence
 
-`tests_runtime/test_spark_warehouse_runtime.py` executes dimensional warehouse construction and an independent Spark audit over bounded Gold fixtures. It proves:
+`tests_runtime/test_spark_warehouse_runtime.py` executes dimensional warehouse construction and the aggregate/referential audit over bounded Gold fixtures. It proves:
 
 1. Gold uptime rows reconcile one-for-one to daily uptime facts;
 2. Gold failure rows reconcile one-for-one to event-grain failure facts;
@@ -59,7 +59,14 @@ The replay scenario uses a second immutable source-file name with a later ingest
 8. duplicating a fact produces both grain and source-count findings;
 9. missing required warehouse datasets and empty uptime input fail closed.
 
-The audit checks aggregate count parity, duplicate grains, null foreign keys, and unmatched foreign keys. Equal source and fact counts do not alone prove row identity; full natural-key reconciliation remains a separate improvement.
+`tests_runtime/test_warehouse_identity_runtime.py` executes the independent natural-identity audit and proves:
+
+1. the clean warehouse reconstructs the exact Gold uptime and failure identities from fact surrogate keys and dimensions;
+2. replacing an uptime fact's machine key with a different but valid dimension key is detected even when counts, fact-grain uniqueness, and foreign-key membership remain valid;
+3. replacing a failure fact event ID is detected even when source and fact counts remain equal;
+4. identity drift produces separate `missing_fact_identity` and `unexpected_fact_identity` findings.
+
+The composite publication audit therefore covers source/fact count parity, duplicate fact grains, null foreign keys, unmatched foreign keys, and exact natural-identity set membership. It deliberately does not compare every numeric measure in each fact; measure-level source-to-target reconciliation remains a separate improvement.
 
 ## Evidence boundary
 

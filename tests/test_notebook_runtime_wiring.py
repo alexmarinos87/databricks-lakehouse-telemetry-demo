@@ -79,12 +79,15 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         notebook = WAREHOUSE.read_text(encoding="utf-8")
 
         self.assertIn("build_warehouse_frames", notebook)
-        self.assertIn("audit_warehouse", notebook)
+        self.assertIn("audit_warehouse_publication", notebook)
         self.assertIn(
             "warehouse_frames = build_warehouse_frames(gold_uptime, gold_failures)",
             notebook,
         )
-        self.assertIn("findings = audit_warehouse(", notebook)
+        self.assertIn(
+            "findings = audit_warehouse_publication(",
+            notebook,
+        )
         self.assertIn("Warehouse reconciliation failed before publication", notebook)
         for dataset_name in (
             "dim_client",
@@ -98,9 +101,10 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         ):
             self.assertIn(dataset_name, notebook)
         self.assertLess(
-            notebook.index("findings = audit_warehouse("),
+            notebook.index("findings = audit_warehouse_publication("),
             notebook.index(".saveAsTable("),
         )
+        self.assertNotIn("findings = audit_warehouse(", notebook)
         self.assertNotIn("F.xxhash64", notebook)
         self.assertNotIn("dropDuplicates", notebook)
 

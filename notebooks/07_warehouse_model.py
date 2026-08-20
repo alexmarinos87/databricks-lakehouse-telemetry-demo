@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 07 - Warehouse model
 # MAGIC
-# MAGIC Publish a reconciled star schema from the Gold layer using the same construction and audit functions executed in local Spark CI.
+# MAGIC Publish a reconciled star schema from the Gold layer using the same construction and publication-audit functions executed in local Spark CI.
 
 # COMMAND ----------
 
@@ -42,8 +42,10 @@ _add_project_src_to_path()
 from lakehouse_demo.spark_warehouse import (  # noqa: E402
     FAILURE_FACT,
     UPTIME_FACT,
-    audit_warehouse,
     build_warehouse_frames,
+)
+from lakehouse_demo.warehouse_identity import (  # noqa: E402
+    audit_warehouse_publication,
 )
 
 # COMMAND ----------
@@ -81,7 +83,7 @@ if missing_outputs:
         + ", ".join(missing_outputs)
     )
 
-findings = audit_warehouse(
+findings = audit_warehouse_publication(
     gold_uptime=gold_uptime,
     gold_failures=gold_failures,
     warehouse_frames=warehouse_frames,
@@ -96,7 +98,10 @@ if findings:
         + finding_summary
     )
 
-print("Warehouse reconciliation passed before Delta publication")
+print(
+    "Warehouse count, grain, referential, and natural-identity "
+    "reconciliation passed before Delta publication"
+)
 
 # COMMAND ----------
 
