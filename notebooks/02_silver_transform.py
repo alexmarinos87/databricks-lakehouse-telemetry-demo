@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 02 - Silver transform
 # MAGIC
-# MAGIC Clean, type, quarantine, deduplicate and validate raw machine event data using the same DataFrame functions executed in local Spark CI.
+# MAGIC Clean, type, quarantine, classify replays, and validate raw machine event data using the same DataFrame functions executed in local Spark CI.
 
 # COMMAND ----------
 
@@ -67,31 +67,41 @@ reconciliation = reconcile_silver(bronze, silver, quarantine)
 if not reconciliation.is_reconciled:
     raise ValueError(
         "Silver publication does not reconcile Bronze, quarantine, and "
-        "deduplicated replay rows"
+        "identical replay rows"
     )
 
 print(
     "Silver reconciliation: "
     f"bronze={reconciliation.bronze_rows}, "
     f"silver={reconciliation.silver_rows}, "
-    f"quarantine={reconciliation.quarantine_rows}, "
-    f"deduplicated={reconciliation.deduplicated_rows}"
+    f"invalid_quarantine={reconciliation.invalid_quarantine_rows}, "
+    f"conflicting_quarantine={reconciliation.conflicting_quarantine_rows}, "
+    f"identical_replays={reconciliation.deduplicated_rows}, "
+    f"conflicting_event_ids={reconciliation.conflicting_event_ids}"
 )
 
 # COMMAND ----------
+
+# Persist rejected rows first. If conflicting payloads share an event ID, this
+# evidence is retained while the previously trusted Silver table remains intact.
+(
+    quarantine.write.format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", True)
+    .saveAsTable(quarantine_table)
+)
+
+if reconciliation.has_conflicts:
+    raise ValueError(
+        "Silver publication blocked because conflicting payloads share "
+        "one or more event IDs; inspect the quarantine table"
+    )
 
 (
     silver.write.format("delta")
     .mode("overwrite")
     .option("overwriteSchema", True)
     .saveAsTable(silver_table)
-)
-
-(
-    quarantine.write.format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", True)
-    .saveAsTable(quarantine_table)
 )
 
 display(spark.table(silver_table).orderBy("event_ts_utc", "machine_id"))

@@ -20,11 +20,11 @@ This matches the repository's Databricks Runtime 15.4 LTS Spark major/minor line
 The Databricks notebooks own platform orchestration and persistence, but no longer maintain independent copies of the transformation logic:
 
 - `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
-- `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, and replay counts before writing;
+- `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, identical replay, and conflicting-payload counts before writing;
 - `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
 - `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse`, and refuses to publish any warehouse table when findings remain.
 
-Repository contracts enforce these call paths and ensure the warehouse audit appears before the first Delta write. As a result, the DataFrame transformations executed by local Spark CI are the same functions the Databricks workflow invokes before persistence.
+Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse auditing likewise occurs before the first warehouse Delta write. The DataFrame transformations executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
 
 ## Medallion evidence
 
@@ -32,14 +32,18 @@ Repository contracts enforce these call paths and ensure the warehouse audit app
 
 1. the Bronze schema is ordered and source-shaped;
 2. malformed required keys enter quarantine;
-3. accepted, quarantined, and deduplicated rows reconcile to the Bronze count;
-4. the latest delivery of one event ID wins deterministically;
-5. strings are normalized and operational measures receive Spark types;
-6. a late event remains present in Silver and Gold outputs;
-7. failure and parts outputs contain the expected event grain;
-8. missing lineage input fails closed.
+3. accepted, quarantined, and identical replay rows reconcile to the Bronze count;
+4. identical source payloads sharing an event ID are treated as replay, with the latest delivery selected deterministically;
+5. exact source payloads receive a bounded SHA-256 evidence digest without storing the internal comparison JSON;
+6. different source payloads sharing an event ID are all quarantined and no arbitrary winner enters Silver;
+7. strings are normalized and operational measures receive Spark types;
+8. a late event remains present in Silver and Gold outputs;
+9. failure and parts outputs contain the expected event grain;
+10. missing lineage input fails closed.
 
-The replay scenario uses a second immutable source-file name with a later ingestion timestamp. It proves transformation-level deduplication. It does **not** prove that Auto Loader reprocesses a corrected file delivered under the same object name and checkpoint.
+Replay and conflict classification compares the exact ordered source payload, excluding ingestion timestamp and source-file lineage. The digest is evidence only; conflict classification uses the exact payload representation rather than relying on hash equality.
+
+The replay scenario uses a second immutable source-file name with a later ingestion timestamp. It proves transformation-level replay handling. It does **not** prove that Auto Loader reprocesses a corrected file delivered under the same object name and checkpoint.
 
 ## Warehouse evidence
 
