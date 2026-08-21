@@ -5,6 +5,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+SPARK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "spark-runtime.yml"
+DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 DOCKERFILE = REPO_ROOT / "Dockerfile.ci"
 BUNDLE = REPO_ROOT / "databricks.yml"
 WORKFLOW_RESOURCE = REPO_ROOT / "resources" / "lakehouse_workflow.yml"
@@ -16,16 +18,49 @@ GRANT_SCRIPT = REPO_ROOT / "scripts" / "apply_uc_grants.py"
 QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
 FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
+CHECKOUT_SHA = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+SETUP_CLI_SHA = "databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121"
+PYTHON_IMAGE = (
+    "python:3.11-slim@sha256:"
+    "9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7"
+)
+
 
 class DeploymentContractTest(unittest.TestCase):
     def test_docker_validation_entrypoint_exists(self):
         dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         ci_workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("python:3.11-slim", dockerfile)
+        self.assertIn(PYTHON_IMAGE, dockerfile)
         self.assertIn("scripts/run_local_checks.sh", dockerfile)
         self.assertIn("docker build -f Dockerfile.ci", ci_workflow)
         self.assertIn("docker run --rm lakehouse-demo-ci", ci_workflow)
+
+    def test_external_actions_and_validation_image_are_immutable(self):
+        workflows = {
+            "ci": CI_WORKFLOW.read_text(encoding="utf-8"),
+            "spark": SPARK_WORKFLOW.read_text(encoding="utf-8"),
+            "deploy": DEPLOY_WORKFLOW.read_text(encoding="utf-8"),
+        }
+
+        for label, workflow in workflows.items():
+            with self.subTest(workflow=label):
+                self.assertIn(CHECKOUT_SHA, workflow)
+                self.assertNotIn("actions/checkout@v", workflow)
+
+        deploy = workflows["deploy"]
+        self.assertIn(SETUP_CLI_SHA, deploy)
+        self.assertNotIn("databricks/setup-cli@main", deploy)
+        self.assertNotIn("runs-on: ubuntu-latest", deploy)
+        self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
+
+    def test_dependency_updates_cover_actions_docker_and_python(self):
+        dependabot = DEPENDABOT.read_text(encoding="utf-8")
+
+        self.assertIn("package-ecosystem: github-actions", dependabot)
+        self.assertIn("package-ecosystem: docker", dependabot)
+        self.assertIn("package-ecosystem: pip", dependabot)
+        self.assertGreaterEqual(dependabot.count("interval: weekly"), 3)
 
     def test_deploy_workflow_has_test_diff_and_deploy_stages(self):
         workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
@@ -38,6 +73,23 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("environment: prod", workflow)
         self.assertIn("databricks bundle plan -t dev", workflow)
         self.assertIn("databricks bundle deploy -t prod", workflow)
+        self.assertGreaterEqual(workflow.count("--statement-timeout-seconds 180"), 4)
+        self.assertGreaterEqual(workflow.count("--command-timeout-seconds 60"), 4)
+        self.assertGreaterEqual(workflow.count("--poll-interval-seconds 5"), 4)
+
+    def test_grant_helper_bounds_commands_and_statement_polling(self):
+        grant_script = GRANT_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("DEFAULT_COMMAND_TIMEOUT_SECONDS", grant_script)
+        self.assertIn("DEFAULT_STATEMENT_TIMEOUT_SECONDS", grant_script)
+        self.assertIn("DEFAULT_POLL_INTERVAL_SECONDS", grant_script)
+        self.assertIn("subprocess.run(", grant_script)
+        self.assertIn("timeout=timeout_seconds", grant_script)
+        self.assertIn("time.monotonic", grant_script)
+        self.assertIn("/cancel", grant_script)
+        self.assertIn("--statement-timeout-seconds", grant_script)
+        self.assertNotIn("subprocess.check_output", grant_script)
+        self.assertNotIn("Statement failed:", grant_script)
 
     def test_bundle_exposes_access_control_principals(self):
         bundle = BUNDLE.read_text(encoding="utf-8")
