@@ -205,7 +205,8 @@ jobs:
             --admin-group "${ADMIN_GROUP_NAME}" \
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
-            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --command-timeout-seconds 60
 
   diff-prod:
     name: Diff prod
@@ -351,4 +352,5 @@ jobs:
             --admin-group "${ADMIN_GROUP_NAME}" \
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
-            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --command-timeout-seconds 60
