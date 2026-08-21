@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from typing import Any
 
 
@@ -34,6 +36,11 @@ REPORTING_TABLES = (
     "quality_expectation_downtime_forecast",
 )
 
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 60.0
+DEFAULT_STATEMENT_TIMEOUT_SECONDS = 180.0
+DEFAULT_POLL_INTERVAL_SECONDS = 5.0
+_ACTIVE_STATEMENT_STATES = {"PENDING", "RUNNING"}
+
 
 def sql_identifier(*parts: str) -> str:
     return ".".join(f"`{part.replace('`', '``')}`" for part in parts)
@@ -43,9 +50,47 @@ def sql_principal(principal: str) -> str:
     return f"`{principal.replace('`', '``')}`"
 
 
-def run_json(command: list[str]) -> Any:
-    output = subprocess.check_output(command, text=True)
-    return json.loads(output or "{}")
+def positive_seconds(value: str) -> float:
+    """Parse a finite positive timeout or polling interval."""
+
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number of seconds") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number of seconds")
+    return parsed
+
+
+def run_json(command: list[str], *, timeout_seconds: float) -> Any:
+    """Execute one bounded Databricks CLI command and parse its JSON response.
+
+    The raised errors intentionally omit command arguments and subprocess output,
+    because both may contain principals, SQL statements, workspace identifiers,
+    or provider diagnostics that should not be copied into broad CI logs.
+    """
+
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(
+            f"Databricks CLI command exceeded {timeout_seconds:g} seconds"
+        ) from None
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"Databricks CLI command failed with exit code {exc.returncode}"
+        ) from None
+
+    try:
+        return json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        raise RuntimeError("Databricks CLI returned invalid JSON") from None
 
 
 def flatten_items(payload: Any, keys: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -59,15 +104,73 @@ def flatten_items(payload: Any, keys: tuple[str, ...]) -> list[dict[str, Any]]:
     return []
 
 
-def find_warehouse_id(target: str, warehouse_name: str) -> str:
-    payload = run_json(["databricks", "warehouses", "list", "-t", target, "-o", "json"])
+def find_warehouse_id(
+    target: str,
+    warehouse_name: str,
+    *,
+    command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+) -> str:
+    payload = run_json(
+        ["databricks", "warehouses", "list", "-t", target, "-o", "json"],
+        timeout_seconds=command_timeout_seconds,
+    )
     for warehouse in flatten_items(payload, ("warehouses", "results")):
         if warehouse.get("name") == warehouse_name and warehouse.get("id"):
-            return warehouse["id"]
+            return str(warehouse["id"])
     raise RuntimeError(f"SQL warehouse not found: {warehouse_name}")
 
 
-def execute_statement(target: str, warehouse_id: str, catalog: str, schema: str, statement: str) -> None:
+def _cancel_statement(
+    target: str,
+    statement_id: str,
+    *,
+    command_timeout_seconds: float,
+) -> None:
+    """Best-effort cancellation after the local statement deadline expires."""
+
+    try:
+        run_json(
+            [
+                "databricks",
+                "api",
+                "post",
+                f"/api/2.0/sql/statements/{statement_id}/cancel",
+                "-t",
+                target,
+                "-o",
+                "json",
+            ],
+            timeout_seconds=command_timeout_seconds,
+        )
+    except (RuntimeError, TimeoutError):
+        # The original timeout remains the authoritative failure. A failed cancel
+        # attempt must not hide it or create an unbounded retry loop.
+        return
+
+
+def execute_statement(
+    target: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    statement: str,
+    *,
+    command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    statement_timeout_seconds: float = DEFAULT_STATEMENT_TIMEOUT_SECONDS,
+    poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Execute one SQL statement with bounded CLI calls and overall polling."""
+
+    for label, value in (
+        ("command timeout", command_timeout_seconds),
+        ("statement timeout", statement_timeout_seconds),
+        ("poll interval", poll_interval_seconds),
+    ):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{label} must be finite and positive")
+
     payload = {
         "warehouse_id": warehouse_id,
         "catalog": catalog,
@@ -76,6 +179,7 @@ def execute_statement(target: str, warehouse_id: str, catalog: str, schema: str,
         "wait_timeout": "30s",
         "on_wait_timeout": "CONTINUE",
     }
+    started_at = monotonic()
     result = run_json(
         [
             "databricks",
@@ -88,12 +192,33 @@ def execute_statement(target: str, warehouse_id: str, catalog: str, schema: str,
             json.dumps(payload),
             "-o",
             "json",
-        ]
+        ],
+        timeout_seconds=command_timeout_seconds,
     )
     statement_id = result.get("statement_id")
     state = result.get("status", {}).get("state")
-    while statement_id and state in {"PENDING", "RUNNING"}:
-        time.sleep(5)
+
+    if state == "SUCCEEDED":
+        return
+    if not statement_id:
+        raise RuntimeError(
+            "Databricks SQL statement response did not include a statement ID"
+        )
+
+    deadline = started_at + statement_timeout_seconds
+    while state in _ACTIVE_STATEMENT_STATES:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            _cancel_statement(
+                target,
+                str(statement_id),
+                command_timeout_seconds=command_timeout_seconds,
+            )
+            raise TimeoutError(
+                f"Databricks SQL statement exceeded {statement_timeout_seconds:g} seconds"
+            )
+
+        sleep(min(poll_interval_seconds, remaining))
         result = run_json(
             [
                 "databricks",
@@ -104,13 +229,15 @@ def execute_statement(target: str, warehouse_id: str, catalog: str, schema: str,
                 target,
                 "-o",
                 "json",
-            ]
+            ],
+            timeout_seconds=command_timeout_seconds,
         )
         state = result.get("status", {}).get("state")
 
     if state != "SUCCEEDED":
-        message = result.get("status", {}).get("error", {}).get("message", result)
-        raise RuntimeError(f"Statement failed: {statement}\n{message}")
+        raise RuntimeError(
+            f"Databricks SQL statement finished in {state or 'UNKNOWN'} state"
+        )
 
 
 def build_grants(args: argparse.Namespace) -> list[str]:
@@ -158,14 +285,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analyst-group", required=True)
     parser.add_argument("--service-principal", required=True)
     parser.add_argument("--include-table-grants", action="store_true")
+    parser.add_argument(
+        "--command-timeout-seconds",
+        type=positive_seconds,
+        default=DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        "--statement-timeout-seconds",
+        type=positive_seconds,
+        default=DEFAULT_STATEMENT_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=positive_seconds,
+        default=DEFAULT_POLL_INTERVAL_SECONDS,
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    warehouse_id = find_warehouse_id(args.target, args.warehouse_name)
+    warehouse_id = find_warehouse_id(
+        args.target,
+        args.warehouse_name,
+        command_timeout_seconds=args.command_timeout_seconds,
+    )
     for statement in build_grants(args):
-        execute_statement(args.target, warehouse_id, args.catalog, args.schema, statement)
+        execute_statement(
+            args.target,
+            warehouse_id,
+            args.catalog,
+            args.schema,
+            statement,
+            command_timeout_seconds=args.command_timeout_seconds,
+            statement_timeout_seconds=args.statement_timeout_seconds,
+            poll_interval_seconds=args.poll_interval_seconds,
+        )
     return 0
 
 

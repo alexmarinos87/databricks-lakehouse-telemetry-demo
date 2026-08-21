@@ -47,10 +47,13 @@ env:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Build validation image
         run: docker build -f Dockerfile.ci -t lakehouse-demo-ci .
@@ -62,7 +65,8 @@ jobs:
     name: Diff dev
     needs: test
     if: github.event.inputs.target == 'dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     environment: dev
     env:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
@@ -70,10 +74,12 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
       - name: Validate dev bundle
         run: |
@@ -103,7 +109,8 @@ jobs:
     name: Deploy dev
     needs: diff-dev
     if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: dev
     env:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
@@ -111,10 +118,12 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
       - name: Deploy dev bundle
         run: |
@@ -139,7 +148,10 @@ jobs:
             --admin-group "${ADMIN_GROUP_NAME}" \
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
-            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --command-timeout-seconds 60 \
+            --statement-timeout-seconds 180 \
+            --poll-interval-seconds 5
 
       - name: Upload sample data
         if: github.event.inputs.upload_sample_data == 'true'
@@ -176,7 +188,10 @@ jobs:
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
             --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
-            --include-table-grants
+            --include-table-grants \
+            --command-timeout-seconds 60 \
+            --statement-timeout-seconds 180 \
+            --poll-interval-seconds 5
 
       - name: Publish dev SQL queries
         run: |
@@ -196,7 +211,8 @@ jobs:
     name: Diff prod
     needs: test
     if: github.event.inputs.target == 'prod'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     environment: prod
     env:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
@@ -204,10 +220,12 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
       - name: Validate prod bundle
         run: |
@@ -237,7 +255,8 @@ jobs:
     name: Deploy prod
     needs: diff-prod
     if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: prod
     env:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
@@ -245,10 +264,12 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
       - name: Deploy prod bundle
         run: |
@@ -273,7 +294,10 @@ jobs:
             --admin-group "${ADMIN_GROUP_NAME}" \
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
-            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}"
+            --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
+            --command-timeout-seconds 60 \
+            --statement-timeout-seconds 180 \
+            --poll-interval-seconds 5
 
       - name: Upload sample data
         if: github.event.inputs.upload_sample_data == 'true'
@@ -310,7 +334,10 @@ jobs:
             --engineer-group "${ENGINEER_GROUP_NAME}" \
             --analyst-group "${ANALYST_GROUP_NAME}" \
             --service-principal "${CI_SERVICE_PRINCIPAL_NAME}" \
-            --include-table-grants
+            --include-table-grants \
+            --command-timeout-seconds 60 \
+            --statement-timeout-seconds 180 \
+            --poll-interval-seconds 5
 
       - name: Publish prod SQL queries
         run: |

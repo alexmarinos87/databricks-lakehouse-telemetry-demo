@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import subprocess
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = REPO_ROOT / "scripts" / "apply_uc_grants.py"
+SPEC = importlib.util.spec_from_file_location("apply_uc_grants", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+apply_uc_grants = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(apply_uc_grants)
+
+
+class ApplyUnityCatalogGrantsTest(unittest.TestCase):
+    def test_positive_seconds_rejects_zero_negative_and_non_finite_values(self):
+        for value in ("0", "-1", "nan", "inf", "-inf"):
+            with self.subTest(value=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    apply_uc_grants.positive_seconds(value)
+
+        self.assertEqual(2.5, apply_uc_grants.positive_seconds("2.5"))
+
+    @mock.patch.object(apply_uc_grants.subprocess, "run")
+    def test_run_json_uses_subprocess_timeout_and_parses_json(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            args=["databricks"],
+            returncode=0,
+            stdout='{"state": "ok"}',
+            stderr="",
+        )
+
+        result = apply_uc_grants.run_json(
+            ["databricks", "warehouses", "list"],
+            timeout_seconds=12,
+        )
+
+        self.assertEqual({"state": "ok"}, result)
+        run.assert_called_once_with(
+            ["databricks", "warehouses", "list"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+
+    @mock.patch.object(apply_uc_grants.subprocess, "run")
+    def test_run_json_does_not_echo_command_or_subprocess_output(self, run):
+        run.side_effect = subprocess.CalledProcessError(
+            returncode=7,
+            cmd=["databricks", "--json", "sensitive-statement"],
+            stderr="sensitive-provider-output",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "exit code 7") as raised:
+            apply_uc_grants.run_json(
+                ["databricks", "--json", "sensitive-statement"],
+                timeout_seconds=12,
+            )
+
+        message = str(raised.exception)
+        self.assertNotIn("sensitive-statement", message)
+        self.assertNotIn("sensitive-provider-output", message)
+
+    @mock.patch.object(apply_uc_grants, "run_json")
+    def test_execute_statement_polls_to_success_with_bounded_calls(self, run_json):
+        run_json.side_effect = [
+            {"statement_id": "statement-1", "status": {"state": "PENDING"}},
+            {"statement_id": "statement-1", "status": {"state": "RUNNING"}},
+            {"statement_id": "statement-1", "status": {"state": "SUCCEEDED"}},
+        ]
+        monotonic = mock.Mock(side_effect=[0.0, 0.0, 5.0])
+        sleep = mock.Mock()
+
+        apply_uc_grants.execute_statement(
+            "dev",
+            "warehouse-1",
+            "main",
+            "lakehouse_demo_dev",
+            "GRANT SELECT ON TABLE example",
+            command_timeout_seconds=10,
+            statement_timeout_seconds=30,
+            poll_interval_seconds=5,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+
+        self.assertEqual(3, run_json.call_count)
+        self.assertEqual([mock.call(5), mock.call(5)], sleep.call_args_list)
+        for call in run_json.call_args_list:
+            self.assertEqual(10, call.kwargs["timeout_seconds"])
+
+    @mock.patch.object(apply_uc_grants, "run_json")
+    def test_execute_statement_times_out_and_attempts_one_cancel(self, run_json):
+        run_json.side_effect = [
+            {"statement_id": "statement-1", "status": {"state": "PENDING"}},
+            {},
+        ]
+        monotonic = mock.Mock(side_effect=[0.0, 31.0])
+        sleep = mock.Mock()
+
+        with self.assertRaisesRegex(TimeoutError, "exceeded 30 seconds"):
+            apply_uc_grants.execute_statement(
+                "dev",
+                "warehouse-1",
+                "main",
+                "lakehouse_demo_dev",
+                "GRANT SELECT ON TABLE example",
+                command_timeout_seconds=10,
+                statement_timeout_seconds=30,
+                poll_interval_seconds=5,
+                monotonic=monotonic,
+                sleep=sleep,
+            )
+
+        self.assertEqual(2, run_json.call_count)
+        cancel_command = run_json.call_args_list[1].args[0]
+        self.assertIn("/api/2.0/sql/statements/statement-1/cancel", cancel_command)
+        sleep.assert_not_called()
+
+    @mock.patch.object(apply_uc_grants, "run_json")
+    def test_execute_statement_failure_omits_sql_and_provider_message(self, run_json):
+        run_json.return_value = {
+            "statement_id": "statement-1",
+            "status": {
+                "state": "FAILED",
+                "error": {"message": "sensitive-provider-output"},
+            },
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "finished in FAILED state") as raised:
+            apply_uc_grants.execute_statement(
+                "prod",
+                "warehouse-1",
+                "main",
+                "lakehouse_demo_prod",
+                "GRANT SELECT ON TABLE sensitive_table",
+            )
+
+        message = str(raised.exception)
+        self.assertNotIn("sensitive_table", message)
+        self.assertNotIn("sensitive-provider-output", message)
+
+
+if __name__ == "__main__":
+    unittest.main()
