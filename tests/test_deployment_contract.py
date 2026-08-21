@@ -18,7 +18,7 @@ GRANT_SCRIPT = REPO_ROOT / "scripts" / "apply_uc_grants.py"
 QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
 FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
-CHECKOUT_SHA = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 SETUP_CLI_SHA = "databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121"
 PYTHON_IMAGE = (
     "python:3.11-slim@sha256:"
@@ -47,11 +47,12 @@ class DeploymentContractTest(unittest.TestCase):
             with self.subTest(workflow=label):
                 self.assertIn(CHECKOUT_SHA, workflow)
                 self.assertNotIn("actions/checkout@v", workflow)
+                self.assertNotIn("runs-on: ubuntu-latest", workflow)
+                self.assertIn("runs-on: ubuntu-24.04", workflow)
 
         deploy = workflows["deploy"]
         self.assertIn(SETUP_CLI_SHA, deploy)
         self.assertNotIn("databricks/setup-cli@main", deploy)
-        self.assertNotIn("runs-on: ubuntu-latest", deploy)
         self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
 
     def test_dependency_updates_cover_actions_docker_and_python(self):
