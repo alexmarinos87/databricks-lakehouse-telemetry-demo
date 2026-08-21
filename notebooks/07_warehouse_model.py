@@ -44,7 +44,7 @@ from lakehouse_demo.spark_warehouse import (  # noqa: E402
     UPTIME_FACT,
     build_warehouse_frames,
 )
-from lakehouse_demo.warehouse_identity import (  # noqa: E402
+from lakehouse_demo.warehouse_publication import (  # noqa: E402
     audit_warehouse_publication,
 )
 
@@ -99,7 +99,7 @@ if findings:
     )
 
 print(
-    "Warehouse count, grain, referential, and natural-identity "
+    "Warehouse count, grain, referential, natural-identity, and measure-level "
     "reconciliation passed before Delta publication"
 )
 
