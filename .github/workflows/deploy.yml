@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -74,7 +74,7 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -118,7 +118,7 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -220,7 +220,7 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -264,7 +264,7 @@ jobs:
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
