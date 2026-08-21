@@ -2,12 +2,50 @@
 # MAGIC %md
 # MAGIC # 04 - Quality checks
 # MAGIC
-# MAGIC Run basic validation checks across bronze, silver and gold tables.
+# MAGIC Run shared medallion and warehouse checks, append detailed and run-level
+# MAGIC evidence, and only then fail on error-level findings.
 
 # COMMAND ----------
 
-from pyspark.sql import Row
-from pyspark.sql import functions as F
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+
+
+def _add_project_src_to_path():
+    cwd = Path.cwd()
+    for base_path in [cwd, *cwd.parents]:
+        src_path = base_path / "src"
+        if src_path.exists():
+            sys.path.insert(0, str(src_path))
+            return
+
+    try:
+        notebook_path = (
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .notebookPath()
+            .get()
+        )
+        workspace_root = PurePosixPath(notebook_path).parent.parent
+        workspace_root_text = str(workspace_root)
+        if not workspace_root_text.startswith("/Workspace/"):
+            workspace_root_text = str(Path("/Workspace") / workspace_root_text.lstrip("/"))
+        sys.path.insert(0, str(Path(workspace_root_text) / "src"))
+    except Exception:
+        return
+
+
+_add_project_src_to_path()
+
+from lakehouse_demo.spark_quality import (  # noqa: E402
+    QUALITY_TABLE_NAMES,
+    evaluate_quality_tables,
+    quality_results_dataframe,
+    summarize_quality_results,
+)
 
 # COMMAND ----------
 
@@ -17,7 +55,7 @@ dbutils.widgets.text("schema", "lakehouse_demo")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 
-tables = {
+table_names = {
     "bronze": f"{catalog}.{schema}.bronze_machine_events",
     "silver": f"{catalog}.{schema}.silver_machine_events",
     "quarantine": f"{catalog}.{schema}.silver_quarantine_machine_events",
@@ -26,191 +64,54 @@ tables = {
     "gold_maintenance_costs": f"{catalog}.{schema}.gold_maintenance_costs",
     "gold_parts_usage": f"{catalog}.{schema}.gold_parts_usage",
     "gold_client_asset_summary": f"{catalog}.{schema}.gold_client_asset_summary",
+    "dim_client": f"{catalog}.{schema}.dim_client",
+    "dim_date": f"{catalog}.{schema}.dim_date",
+    "dim_fault": f"{catalog}.{schema}.dim_fault",
+    "dim_machine": f"{catalog}.{schema}.dim_machine",
+    "dim_model": f"{catalog}.{schema}.dim_model",
+    "dim_site": f"{catalog}.{schema}.dim_site",
+    "fact_machine_failure_event": f"{catalog}.{schema}.fact_machine_failure_event",
+    "fact_machine_uptime_daily": f"{catalog}.{schema}.fact_machine_uptime_daily",
 }
+if tuple(table_names) != QUALITY_TABLE_NAMES:
+    raise ValueError("Quality table mapping does not match the shared contract")
 
 quality_table = f"{catalog}.{schema}.quality_check_results"
 quality_history_table = f"{catalog}.{schema}.quality_metric_history"
 
 # COMMAND ----------
 
-results = []
-
-
-def add_result(check_name, status, detail, severity="error"):
-    results.append(
-        Row(
-            check_name=check_name,
-            status=status,
-            severity=severity,
-            detail=detail,
-        )
-    )
-
-
-def add_uniqueness_check(df, check_name, table_label, key_columns, severity="error"):
-    duplicate_keys = df.groupBy(*key_columns).count().where(F.col("count") > 1)
-    duplicate_summary = duplicate_keys.agg(
-        F.count(F.lit(1)).alias("duplicate_key_count"),
-        F.coalesce(F.sum("count"), F.lit(0)).alias("duplicate_row_count"),
-    ).collect()[0]
-
-    duplicate_key_count = duplicate_summary["duplicate_key_count"]
-    duplicate_row_count = duplicate_summary["duplicate_row_count"]
-    key_label = ", ".join(key_columns)
-
-    if duplicate_key_count == 0:
-        add_result(
-            check_name,
-            "pass",
-            f"{table_label} has unique {key_label} values",
-            severity,
-        )
-    else:
-        add_result(
-            check_name,
-            "fail",
-            f"{table_label} has {duplicate_key_count} duplicated {key_label} values across {duplicate_row_count} rows",
-            severity,
-        )
-
-
-def add_required_fields_check(df, check_name, table_label, required_columns, severity="error"):
-    missing_row_condition = F.lit(False)
-    missing_count_expressions = []
-
-    for column_name in required_columns:
-        missing_condition = F.col(column_name).isNull() | (F.length(F.trim(F.col(column_name).cast("string"))) == 0)
-        missing_row_condition = missing_row_condition | missing_condition
-        missing_count_expressions.append(
-            F.coalesce(F.sum(F.when(missing_condition, F.lit(1)).otherwise(F.lit(0))), F.lit(0)).alias(column_name)
-        )
-
-    missing_rows = df.where(missing_row_condition).count()
-    missing_counts = df.agg(*missing_count_expressions).collect()[0].asDict()
-    missing_detail = ", ".join(
-        f"{column_name}={missing_counts[column_name]}"
-        for column_name in required_columns
-        if missing_counts[column_name] > 0
-    )
-
-    if missing_rows == 0:
-        add_result(
-            check_name,
-            "pass",
-            f"{table_label} has populated required fields: {', '.join(required_columns)}",
-            severity,
-        )
-    else:
-        add_result(
-            check_name,
-            "fail",
-            f"{table_label} has {missing_rows} rows with missing required fields ({missing_detail})",
-            severity,
-        )
-
-
-for logical_name, table_name in tables.items():
+candidate_frames = {}
+unavailable_tables = {}
+for logical_name, table_name in table_names.items():
     try:
-        count = spark.table(table_name).count()
-        add_result(f"{logical_name}_table_exists", "pass", f"{table_name} contains {count} rows", "error")
-    except Exception as exc:
-        add_result(f"{logical_name}_table_exists", "fail", f"{table_name} could not be read: {exc}", "error")
+        candidate_frames[logical_name] = spark.table(table_name)
+    except Exception:
+        # Provider diagnostics are deliberately excluded from durable evidence.
+        unavailable_tables[logical_name] = table_name
 
-silver = spark.table(tables["silver"])
-
-add_uniqueness_check(
-    silver,
-    "silver_event_id_unique",
-    "silver_machine_events",
-    ["event_id"],
+quality_results = evaluate_quality_tables(
+    candidate_frames,
+    unavailable_tables=unavailable_tables,
 )
-
-add_required_fields_check(
-    silver,
-    "silver_required_fields_present",
-    "silver_machine_events",
-    ["event_id", "machine_id", "event_ts_utc", "site_id", "client_id"],
+quality_run_id = str(uuid.uuid4())
+checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+results_df = quality_results_dataframe(
+    spark,
+    quality_results,
+    quality_run_id=quality_run_id,
+    checked_at=checked_at,
 )
-
-negative_metrics = silver.where(
-    (F.col("duration_minutes") < 0)
-    | (F.col("downtime_minutes") < 0)
-    | (F.col("maintenance_cost_gbp") < 0)
-    | (F.col("fuel_level_pct") < 0)
-).count()
-add_result(
-    "silver_metrics_non_negative",
-    "pass" if negative_metrics == 0 else "fail",
-    f"{negative_metrics} silver rows have negative operational metrics",
-)
-
-empty_gold_tables = [
-    name
-    for name in [
-        "gold_machine_uptime",
-        "gold_failure_events",
-        "gold_maintenance_costs",
-        "gold_parts_usage",
-        "gold_client_asset_summary",
-    ]
-    if spark.table(tables[name]).count() == 0
-]
-add_result(
-    "gold_tables_populated",
-    "pass" if not empty_gold_tables else "fail",
-    "All gold tables contain rows" if not empty_gold_tables else f"Empty gold tables: {', '.join(empty_gold_tables)}",
-)
+quality_history_df = summarize_quality_results(results_df)
 
 # COMMAND ----------
 
-results_df = (
-    spark.createDataFrame(results)
-    .withColumn("checked_at", F.current_timestamp())
-    .select("checked_at", "check_name", "status", "severity", "detail")
-)
-
 (
     results_df.write.format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", True)
+    .mode("append")
+    .option("mergeSchema", True)
     .saveAsTable(quality_table)
 )
-
-quality_history_df = (
-    results_df.groupBy("checked_at")
-    .agg(
-        F.count(F.lit(1)).alias("check_count"),
-        F.sum(F.when(F.col("status") == "pass", F.lit(1)).otherwise(F.lit(0))).alias(
-            "passed_check_count"
-        ),
-        F.sum(F.when(F.col("status") == "fail", F.lit(1)).otherwise(F.lit(0))).alias(
-            "failed_check_count"
-        ),
-        F.sum(
-            F.when(
-                (F.col("status") == "fail") & (F.col("severity") == "error"),
-                F.lit(1),
-            ).otherwise(F.lit(0))
-        ).alias("failed_error_check_count"),
-        F.sum(
-            F.when(
-                (F.col("status") == "fail") & (F.col("severity") != "error"),
-                F.lit(1),
-            ).otherwise(F.lit(0))
-        ).alias("failed_warning_check_count"),
-    )
-    .withColumn("all_error_checks_passed", F.col("failed_error_check_count") == 0)
-    .select(
-        "checked_at",
-        "check_count",
-        "passed_check_count",
-        "failed_check_count",
-        "failed_error_check_count",
-        "failed_warning_check_count",
-        "all_error_checks_passed",
-    )
-)
-
 (
     quality_history_df.write.format("delta")
     .mode("append")
@@ -218,8 +119,15 @@ quality_history_df = (
     .saveAsTable(quality_history_table)
 )
 
-display(results_df.orderBy("status", "check_name"))
+# COMMAND ----------
 
-failed_error_checks = results_df.where((F.col("status") == "fail") & (F.col("severity") == "error")).count()
+display(results_df.orderBy("status", "severity", "check_name"))
+
+failed_error_checks = results_df.where(
+    (results_df.status == "fail") & (results_df.severity == "error")
+).count()
 if failed_error_checks:
-    raise AssertionError(f"{failed_error_checks} error-level data quality checks failed")
+    raise AssertionError(
+        f"{failed_error_checks} error-level data quality checks failed; "
+        f"evidence is stored under quality_run_id={quality_run_id}"
+    )

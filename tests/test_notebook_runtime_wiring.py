@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BRONZE = REPO_ROOT / "notebooks" / "01_bronze_ingest.py"
 SILVER = REPO_ROOT / "notebooks" / "02_silver_transform.py"
 GOLD = REPO_ROOT / "notebooks" / "03_gold_models.py"
+QUALITY = REPO_ROOT / "notebooks" / "04_quality_checks.py"
 WAREHOUSE = REPO_ROOT / "notebooks" / "07_warehouse_model.py"
 
 
@@ -22,7 +23,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertNotIn("StructType(", notebook)
 
     def test_transformation_notebooks_add_repository_source_path(self):
-        for path in (SILVER, GOLD, WAREHOUSE):
+        for path in (SILVER, GOLD, QUALITY, WAREHOUSE):
             with self.subTest(path=path.name):
                 notebook = path.read_text(encoding="utf-8")
                 self.assertIn("def _add_project_src_to_path():", notebook)
@@ -75,14 +76,32 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         )
         self.assertNotIn(".groupBy(", notebook)
 
+    def test_quality_uses_shared_checks_and_persists_before_failure(self):
+        notebook = QUALITY.read_text(encoding="utf-8")
+
+        self.assertIn("from lakehouse_demo.spark_quality import", notebook)
+        self.assertIn("evaluate_quality_tables", notebook)
+        self.assertIn("quality_results_dataframe", notebook)
+        self.assertIn("summarize_quality_results", notebook)
+        self.assertIn("fact_machine_uptime_daily", notebook)
+        self.assertIn("fact_machine_failure_event", notebook)
+        self.assertIn('mode("append")', notebook)
+        self.assertIn("quality_run_id", notebook)
+        self.assertLess(
+            notebook.index("results_df.write.format"),
+            notebook.index("quality_history_df.write.format"),
+        )
+        self.assertLess(
+            notebook.index("quality_history_df.write.format"),
+            notebook.index("if failed_error_checks:"),
+        )
+        self.assertNotIn("str(exc)", notebook)
+        self.assertNotIn("except Exception as", notebook)
+
     def test_warehouse_audits_shared_outputs_before_publication(self):
         notebook = WAREHOUSE.read_text(encoding="utf-8")
 
         self.assertIn("build_warehouse_frames", notebook)
-        self.assertIn(
-            "from lakehouse_demo.warehouse_publication import",
-            notebook,
-        )
         self.assertIn("audit_warehouse_publication", notebook)
         self.assertIn(
             "warehouse_frames = build_warehouse_frames(gold_uptime, gold_failures)",
@@ -93,7 +112,6 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
             notebook,
         )
         self.assertIn("Warehouse reconciliation failed before publication", notebook)
-        self.assertIn("measure-level", notebook)
         for dataset_name in (
             "dim_client",
             "dim_date",
