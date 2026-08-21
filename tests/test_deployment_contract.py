@@ -74,7 +74,7 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("databricks bundle plan -t dev", workflow)
         self.assertIn("databricks bundle deploy -t prod", workflow)
         self.assertGreaterEqual(workflow.count("--statement-timeout-seconds 180"), 4)
-        self.assertGreaterEqual(workflow.count("--command-timeout-seconds 60"), 4)
+        self.assertGreaterEqual(workflow.count("--command-timeout-seconds 60"), 6)
         self.assertGreaterEqual(workflow.count("--poll-interval-seconds 5"), 4)
 
     def test_grant_helper_bounds_commands_and_statement_polling(self):
@@ -90,6 +90,25 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("--statement-timeout-seconds", grant_script)
         self.assertNotIn("subprocess.check_output", grant_script)
         self.assertNotIn("Statement failed:", grant_script)
+
+    def test_query_publisher_is_bounded_paginated_and_fail_closed(self):
+        workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+        query_script = QUERY_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(workflow.count("--command-timeout-seconds 60"), 6)
+        self.assertIn("DEFAULT_COMMAND_TIMEOUT_SECONDS", query_script)
+        self.assertIn("QUERY_PAGE_SIZE", query_script)
+        self.assertIn("MAX_QUERY_PAGES", query_script)
+        self.assertIn("MAX_REPORTING_ASSETS", query_script)
+        self.assertIn("MAX_ASSET_BYTES", query_script)
+        self.assertIn("subprocess.run(", query_script)
+        self.assertIn("timeout=timeout_seconds", query_script)
+        self.assertIn('"--page-size"', query_script)
+        self.assertIn('"--page-token"', query_script)
+        self.assertIn("Multiple active queries", query_script)
+        self.assertIn("duplicate display name", query_script)
+        self.assertNotIn("subprocess.check_output", query_script)
+        self.assertNotIn("subprocess.check_call", query_script)
 
     def test_bundle_exposes_access_control_principals(self):
         bundle = BUNDLE.read_text(encoding="utf-8")
