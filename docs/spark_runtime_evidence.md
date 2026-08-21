@@ -22,9 +22,10 @@ The Databricks notebooks own platform orchestration and persistence, but no long
 - `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
 - `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, identical replay, and conflicting-payload counts before writing;
 - `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
+- `04_quality_checks.py` calls `evaluate_quality_tables`, persists append-only detailed and run-level evidence, and only then raises on error-level findings;
 - `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, natural-identity, or measure-level findings remain.
 
-Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse publication auditing likewise occurs before the first warehouse Delta write. The DataFrame transformations executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
+Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse publication auditing likewise occurs before the first warehouse Delta write. Quality checks append their detailed result rows and run summary before the deliberate failure gate. The DataFrame transformations and quality checks executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
 
 ## Medallion evidence
 
@@ -74,6 +75,23 @@ The replay scenario uses a second immutable source-file name with a later ingest
 The measure audit joins Gold rows to fact rows through reconstructed identities. It compares the direct uptime and failure values written into the facts and independently derives idle, downtime, and maintenance percentages from Gold minutes. All measure mismatch counts for one fact family are materialized in a single Spark aggregation.
 
 The composite publication audit therefore covers source/fact count parity, duplicate fact grains, null foreign keys, unmatched foreign keys, exact natural-identity set membership, redundant fact-date consistency, and direct or derived measure equality.
+
+## Quality evidence
+
+`tests_runtime/test_spark_quality_runtime.py` executes the shared medallion and warehouse quality evaluator and proves:
+
+1. required table readability and population outcomes are represented as bounded result rows;
+2. an unavailable table creates durable evidence without attempting dependent DataFrame checks or persisting provider diagnostics;
+3. Silver event-ID uniqueness, required fields, and technical metric bounds are executable;
+4. warehouse uptime and failure fact grains and required dimension keys are executable quality gates;
+5. uptime percentage bounds and status-minute partitioning are enforced independently of the publication audit;
+6. failure count, downtime, maintenance cost, and part quantity technical invariants are enforced;
+7. downtime above observed duration remains an explicit warning while the business definition is unresolved, rather than being silently accepted or incorrectly promoted to an approved hard rule;
+8. detailed and summary DataFrames share one `quality_run_id` and `checked_at`, with separate error and warning failure counts.
+
+`04_quality_checks.py` resolves every required medallion, Gold, dimension, and fact table, but does not let one missing table abort evidence construction. It appends `quality_check_results`, then appends `quality_metric_history`, and only afterwards fails the workflow when `failed_error_check_count` is non-zero. Detailed findings contain logical check names, status, severity, bounded detail, and counts; raw exception text and row values are not persisted.
+
+This is append-only evidence at the notebook boundary, not a cross-table transaction. A failure while writing the evidence tables themselves can still prevent complete persistence, and an authenticated Databricks run is required to prove Delta schema evolution and append behaviour.
 
 ## Evidence boundary
 
