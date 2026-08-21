@@ -79,6 +79,10 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         notebook = WAREHOUSE.read_text(encoding="utf-8")
 
         self.assertIn("build_warehouse_frames", notebook)
+        self.assertIn(
+            "from lakehouse_demo.warehouse_publication import",
+            notebook,
+        )
         self.assertIn("audit_warehouse_publication", notebook)
         self.assertIn(
             "warehouse_frames = build_warehouse_frames(gold_uptime, gold_failures)",
@@ -89,6 +93,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
             notebook,
         )
         self.assertIn("Warehouse reconciliation failed before publication", notebook)
+        self.assertIn("measure-level", notebook)
         for dataset_name in (
             "dim_client",
             "dim_date",

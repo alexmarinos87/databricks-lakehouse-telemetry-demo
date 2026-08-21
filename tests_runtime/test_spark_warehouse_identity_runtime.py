@@ -19,7 +19,10 @@ from lakehouse_demo.spark_warehouse import (  # noqa: E402
     WarehouseFinding,
     build_warehouse_frames,
 )
-from lakehouse_demo.warehouse_identity import (  # noqa: E402
+from lakehouse_demo.warehouse_measures import (  # noqa: E402
+    audit_warehouse_measures,
+)
+from lakehouse_demo.warehouse_publication import (  # noqa: E402
     audit_warehouse_publication,
 )
 
@@ -30,7 +33,7 @@ class WarehouseIdentityRuntimeTest(unittest.TestCase):
         os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
         cls.spark = (
             SparkSession.builder.master("local[2]")
-            .appName("lakehouse-demo-warehouse-identity-runtime-test")
+            .appName("lakehouse-demo-warehouse-publication-runtime-test")
             .config("spark.ui.enabled", "false")
             .config("spark.sql.shuffle.partitions", "2")
             .config("spark.sql.session.timeZone", "UTC")
@@ -189,6 +192,178 @@ class WarehouseIdentityRuntimeTest(unittest.TestCase):
                 WarehouseFinding(
                     code="unexpected_fact_identity",
                     dataset=FAILURE_FACT,
+                    count=1,
+                ),
+            },
+            set(findings),
+        )
+
+    def test_wrong_but_valid_date_key_is_resolved_through_dim_date(self) -> None:
+        date_keys = {
+            row["date_day"]: row["date_key"]
+            for row in self.frames["dim_date"]
+            .select("date_day", "date_key")
+            .collect()
+        }
+        corrupted_uptime = self.frames[UPTIME_FACT].withColumn(
+            "date_key",
+            F.when(
+                F.col("event_date") == F.lit(date(2026, 4, 1)),
+                F.lit(date_keys[date(2026, 4, 2)]),
+            ).otherwise(F.col("date_key")),
+        )
+        corrupted_frames = dict(self.frames)
+        corrupted_frames[UPTIME_FACT] = corrupted_uptime
+
+        findings = audit_warehouse_publication(
+            gold_uptime=self.gold_uptime,
+            gold_failures=self.gold_failures,
+            warehouse_frames=corrupted_frames,
+        )
+
+        self.assertEqual(
+            {
+                WarehouseFinding(
+                    code="missing_fact_identity",
+                    dataset=UPTIME_FACT,
+                    count=1,
+                ),
+                WarehouseFinding(
+                    code="unexpected_fact_identity",
+                    dataset=UPTIME_FACT,
+                    count=1,
+                ),
+            },
+            set(findings),
+        )
+
+    def test_redundant_fact_event_date_must_match_the_resolved_identity(self) -> None:
+        corrupted_uptime = self.frames[UPTIME_FACT].withColumn(
+            "event_date",
+            F.when(
+                F.col("event_date") == F.lit(date(2026, 4, 1)),
+                F.lit(date(2026, 4, 2)),
+            ).otherwise(F.col("event_date")),
+        )
+        corrupted_frames = dict(self.frames)
+        corrupted_frames[UPTIME_FACT] = corrupted_uptime
+
+        findings = audit_warehouse_measures(
+            gold_uptime=self.gold_uptime,
+            gold_failures=self.gold_failures,
+            warehouse_frames=corrupted_frames,
+        )
+
+        self.assertEqual(
+            (
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{UPTIME_FACT}.event_date",
+                    count=1,
+                ),
+            ),
+            findings,
+        )
+
+    def test_direct_uptime_minute_drift_is_reported_by_column(self) -> None:
+        corrupted_uptime = self.frames[UPTIME_FACT].withColumn(
+            "running_minutes",
+            F.when(
+                F.col("event_date") == F.lit(date(2026, 4, 1)),
+                F.col("running_minutes") + F.lit(1),
+            ).otherwise(F.col("running_minutes")),
+        )
+        corrupted_frames = dict(self.frames)
+        corrupted_frames[UPTIME_FACT] = corrupted_uptime
+
+        findings = audit_warehouse_measures(
+            gold_uptime=self.gold_uptime,
+            gold_failures=self.gold_failures,
+            warehouse_frames=corrupted_frames,
+        )
+
+        self.assertEqual(
+            (
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{UPTIME_FACT}.running_minutes",
+                    count=1,
+                ),
+            ),
+            findings,
+        )
+
+    def test_derived_uptime_percentage_drift_is_reported(self) -> None:
+        corrupted_uptime = self.frames[UPTIME_FACT].withColumn(
+            "downtime_pct",
+            F.when(
+                F.col("event_date") == F.lit(date(2026, 4, 2)),
+                F.lit(99.99),
+            ).otherwise(F.col("downtime_pct")),
+        )
+        corrupted_frames = dict(self.frames)
+        corrupted_frames[UPTIME_FACT] = corrupted_uptime
+
+        findings = audit_warehouse_measures(
+            gold_uptime=self.gold_uptime,
+            gold_failures=self.gold_failures,
+            warehouse_frames=corrupted_frames,
+        )
+
+        self.assertEqual(
+            (
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{UPTIME_FACT}.downtime_pct",
+                    count=1,
+                ),
+            ),
+            findings,
+        )
+
+    def test_failure_cost_quantity_count_and_null_drift_are_reported(self) -> None:
+        corrupted_failure = (
+            self.frames[FAILURE_FACT]
+            .withColumn(
+                "maintenance_cost_gbp",
+                F.col("maintenance_cost_gbp") + F.lit(1.0),
+            )
+            .withColumn(
+                "part_quantity",
+                F.col("part_quantity") + F.lit(1),
+            )
+            .withColumn("failure_event_count", F.lit(2))
+            .withColumn("temperature_c", F.lit(None).cast("double"))
+        )
+        corrupted_frames = dict(self.frames)
+        corrupted_frames[FAILURE_FACT] = corrupted_failure
+
+        findings = audit_warehouse_measures(
+            gold_uptime=self.gold_uptime,
+            gold_failures=self.gold_failures,
+            warehouse_frames=corrupted_frames,
+        )
+
+        self.assertEqual(
+            {
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{FAILURE_FACT}.failure_event_count",
+                    count=1,
+                ),
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{FAILURE_FACT}.maintenance_cost_gbp",
+                    count=1,
+                ),
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{FAILURE_FACT}.part_quantity",
+                    count=1,
+                ),
+                WarehouseFinding(
+                    code="measure_mismatch",
+                    dataset=f"{FAILURE_FACT}.temperature_c",
                     count=1,
                 ),
             },

@@ -6,6 +6,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = REPO_ROOT / "notebooks" / "07_warehouse_model.py"
 WAREHOUSE_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "spark_warehouse.py"
 IDENTITY_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "warehouse_identity.py"
+MEASURE_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "warehouse_measures.py"
+PUBLICATION_MODULE = (
+    REPO_ROOT / "src" / "lakehouse_demo" / "warehouse_publication.py"
+)
 WORKFLOW = REPO_ROOT / "resources" / "lakehouse_workflow.yml"
 
 
@@ -57,6 +61,8 @@ class WarehouseModelContractTest(unittest.TestCase):
     def test_shared_modules_build_and_audit_failure_facts(self):
         module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
         identity = IDENTITY_MODULE.read_text(encoding="utf-8")
+        measures = MEASURE_MODULE.read_text(encoding="utf-8")
+        publication = PUBLICATION_MODULE.read_text(encoding="utf-8")
 
         self.assertIn('"dim_fault"', module)
         self.assertIn('"fact_machine_failure_event"', module)
@@ -73,7 +79,12 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("conflicting machine assignments", module)
         self.assertIn("missing_fact_identity", identity)
         self.assertIn("unexpected_fact_identity", identity)
-        self.assertIn("audit_warehouse_publication", identity)
+        self.assertIn("measure_mismatch", measures)
+        self.assertIn("maintenance_cost_gbp", measures)
+        self.assertIn("part_quantity", measures)
+        self.assertIn("audit_warehouse_publication", publication)
+        self.assertIn("audit_warehouse_identity", publication)
+        self.assertIn("audit_warehouse_measures", publication)
 
     def test_warehouse_runs_between_gold_and_quality(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -81,7 +92,8 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("task_key: warehouse_model", workflow)
         self.assertIn("notebook_path: ../notebooks/07_warehouse_model.py", workflow)
         self.assertIn(
-            "task_key: quality_checks\n          depends_on:\n            - task_key: warehouse_model",
+            "task_key: quality_checks\n          depends_on:\n"
+            "            - task_key: warehouse_model",
             workflow,
         )
 

@@ -22,7 +22,7 @@ The Databricks notebooks own platform orchestration and persistence, but no long
 - `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
 - `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, identical replay, and conflicting-payload counts before writing;
 - `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
-- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, or natural-identity findings remain.
+- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, natural-identity, or measure-level findings remain.
 
 Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse publication auditing likewise occurs before the first warehouse Delta write. The DataFrame transformations executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
 
@@ -59,14 +59,21 @@ The replay scenario uses a second immutable source-file name with a later ingest
 8. duplicating a fact produces both grain and source-count findings;
 9. missing required warehouse datasets and empty uptime input fail closed.
 
-`tests_runtime/test_warehouse_identity_runtime.py` executes the independent natural-identity audit and proves:
+`tests_runtime/test_spark_warehouse_identity_runtime.py` executes the composite publication audit and focused identity/measure checks. It proves:
 
-1. the clean warehouse reconstructs the exact Gold uptime and failure identities from fact surrogate keys and dimensions;
-2. replacing an uptime fact's machine key with a different but valid dimension key is detected even when counts, fact-grain uniqueness, and foreign-key membership remain valid;
-3. replacing a failure fact event ID is detected even when source and fact counts remain equal;
-4. identity drift produces separate `missing_fact_identity` and `unexpected_fact_identity` findings.
+1. the clean warehouse passes count, grain, referential, natural-identity, and measure-level reconciliation;
+2. machine, client, site, model, fault, and date identities are reconstructed through their dimension keys rather than trusted from duplicate fact attributes;
+3. replacing an uptime fact's machine key with a different but valid dimension key is detected even when counts, fact-grain uniqueness, and foreign-key membership remain valid;
+4. replacing a valid `date_key` with another valid date member produces missing and unexpected identity findings;
+5. replacing a failure fact event ID is detected even when source and fact counts remain equal;
+6. changing the redundant fact `event_date` while retaining the correct date dimension key produces a measure mismatch;
+7. direct minute drift and derived percentage drift are reported by dataset and column;
+8. failure count, maintenance cost, part quantity, and nullable sensor drift are detected with exact null-safe comparisons;
+9. findings contain only code, dataset/column, and count rather than source values.
 
-The composite publication audit therefore covers source/fact count parity, duplicate fact grains, null foreign keys, unmatched foreign keys, and exact natural-identity set membership. It deliberately does not compare every numeric measure in each fact; measure-level source-to-target reconciliation remains a separate improvement.
+The measure audit joins Gold rows to fact rows through reconstructed identities. It compares the direct uptime and failure values written into the facts and independently derives idle, downtime, and maintenance percentages from Gold minutes. All measure mismatch counts for one fact family are materialized in a single Spark aggregation.
+
+The composite publication audit therefore covers source/fact count parity, duplicate fact grains, null foreign keys, unmatched foreign keys, exact natural-identity set membership, redundant fact-date consistency, and direct or derived measure equality.
 
 ## Evidence boundary
 
@@ -77,6 +84,9 @@ Passing this workflow demonstrates executable Spark DataFrame semantics for the 
 - Unity Catalog permissions, volumes, or effective identities;
 - Databricks Asset Bundle rendering or deployment;
 - Lakeflow expectations or event-log publication;
-- cloud storage, cluster policy, cost, or recovery behaviour.
+- cloud storage, cluster policy, cost, or recovery behaviour;
+- that the business meaning or acceptable bounds of downtime, observed duration, or percentages have been approved.
+
+Measure equality proves that the warehouse represents the current Gold semantics. It does not by itself prove that those semantics are the correct business definition; for example, the repository still permits downtime to exceed observed duration until that rule is decided.
 
 Authenticated Databricks validation and plan evidence, followed by a deliberately approved development run, remain separate controls.
