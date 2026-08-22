@@ -66,12 +66,18 @@ SELECT
 FROM main.lakehouse_demo.gold_client_asset_summary
 ORDER BY client_id, site_id, failure_related_cost_gbp DESC;
 
--- Validated downtime forecast for the next service period
+-- Downtime forecast with explicit client-readiness evidence
 SELECT
+  forecast_run_id,
+  forecast_generated_at,
   forecast_date,
+  latest_actual_date,
   site_id,
   client_id,
   model,
+  window_semantics,
+  baseline_window_days,
+  forecast_horizon_days,
   machine_count,
   forecast_downtime_minutes,
   prediction_interval_lower_minutes,
@@ -80,20 +86,32 @@ SELECT
   mae_downtime_minutes,
   rmse_downtime_minutes,
   backtest_interval_coverage_pct,
+  thresholds_configured,
+  max_mae_downtime_minutes,
+  min_interval_coverage_pct,
+  meets_min_validation_samples,
+  meets_mae_threshold,
+  meets_interval_coverage_threshold,
   forecast_status
 FROM main.lakehouse_demo.gold_downtime_forecast
 ORDER BY
   CASE forecast_status
     WHEN 'validated_baseline' THEN 1
-    ELSE 2
+    WHEN 'accuracy_threshold_failed' THEN 2
+    WHEN 'thresholds_not_configured' THEN 3
+    ELSE 4
   END,
   forecast_downtime_minutes DESC;
 
--- Downtime forecast backtest performance
+-- Downtime forecast backtest performance for the current published run
 SELECT
+  forecast_run_id,
+  validation_generated_at,
   site_id,
   client_id,
   model,
+  window_semantics,
+  baseline_window_days,
   COUNT(*) AS validation_observation_count,
   ROUND(AVG(absolute_error_minutes), 2) AS mae_downtime_minutes,
   ROUND(SQRT(AVG(squared_error_minutes)), 2) AS rmse_downtime_minutes,
@@ -104,7 +122,14 @@ SELECT
   ) AS backtest_interval_coverage_pct,
   MAX(event_date) AS latest_validation_date
 FROM main.lakehouse_demo.gold_downtime_forecast_validation
-GROUP BY site_id, client_id, model
+GROUP BY
+  forecast_run_id,
+  validation_generated_at,
+  site_id,
+  client_id,
+  model,
+  window_semantics,
+  baseline_window_days
 ORDER BY mae_downtime_minutes DESC, site_id, model;
 
 -- Latest failed quality checks plus the durable run-level outcome

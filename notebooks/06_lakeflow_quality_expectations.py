@@ -102,6 +102,10 @@ def quality_expectation_gold_machine_uptime():
 )
 @dp.expect_all(
     {
+        "forecast_run_id_present": (
+            "forecast_run_id IS NOT NULL "
+            "AND length(trim(cast(forecast_run_id AS STRING))) > 0"
+        ),
         "forecast_date_present": "forecast_date IS NOT NULL",
         "segment_keys_present": (
             "site_id IS NOT NULL AND client_id IS NOT NULL AND model IS NOT NULL "
@@ -109,6 +113,7 @@ def quality_expectation_gold_machine_uptime():
             "AND length(trim(cast(client_id AS STRING))) > 0 "
             "AND length(trim(cast(model AS STRING))) > 0"
         ),
+        "calendar_window_semantics_known": "window_semantics = 'calendar_days'",
         "forecast_non_negative": "forecast_downtime_minutes IS NULL OR forecast_downtime_minutes >= 0",
         "interval_lower_non_negative": (
             "prediction_interval_lower_minutes IS NULL OR prediction_interval_lower_minutes >= 0"
@@ -125,20 +130,53 @@ def quality_expectation_gold_machine_uptime():
             "OR forecast_downtime_minutes BETWEEN prediction_interval_lower_minutes "
             "AND prediction_interval_upper_minutes"
         ),
-        "validation_count_non_negative": "validation_observation_count IS NULL OR validation_observation_count >= 0",
+        "validation_count_non_negative": (
+            "validation_observation_count IS NULL "
+            "OR validation_observation_count >= 0"
+        ),
+        "threshold_pair_consistent": (
+            "(thresholds_configured = false "
+            "AND max_mae_downtime_minutes IS NULL "
+            "AND min_interval_coverage_pct IS NULL) "
+            "OR (thresholds_configured = true "
+            "AND max_mae_downtime_minutes IS NOT NULL "
+            "AND min_interval_coverage_pct IS NOT NULL)"
+        ),
+        "mae_threshold_non_negative": (
+            "max_mae_downtime_minutes IS NULL "
+            "OR max_mae_downtime_minutes >= 0"
+        ),
+        "coverage_threshold_in_range": (
+            "min_interval_coverage_pct IS NULL "
+            "OR min_interval_coverage_pct BETWEEN 0 AND 100"
+        ),
         "forecast_status_known": (
-            "forecast_status IN ('validated_baseline', 'insufficient_validation_history')"
+            "forecast_status IN ("
+            "'validated_baseline', "
+            "'insufficient_validation_history', "
+            "'thresholds_not_configured', "
+            "'accuracy_threshold_failed'"
+            ")"
+        ),
+        "validated_status_is_evidenced": (
+            "forecast_status <> 'validated_baseline' "
+            "OR (thresholds_configured = true "
+            "AND meets_min_validation_samples = true "
+            "AND meets_mae_threshold = true "
+            "AND meets_interval_coverage_threshold = true)"
         ),
     }
 )
 def quality_expectation_downtime_forecast():
     return source_table("gold_downtime_forecast").select(
+        "forecast_run_id",
         "forecast_generated_at",
         "forecast_date",
         "latest_actual_date",
         "site_id",
         "client_id",
         "model",
+        "window_semantics",
         "machine_count",
         "forecast_downtime_minutes",
         "prediction_interval_lower_minutes",
@@ -147,5 +185,11 @@ def quality_expectation_downtime_forecast():
         "mae_downtime_minutes",
         "rmse_downtime_minutes",
         "backtest_interval_coverage_pct",
+        "thresholds_configured",
+        "max_mae_downtime_minutes",
+        "min_interval_coverage_pct",
+        "meets_min_validation_samples",
+        "meets_mae_threshold",
+        "meets_interval_coverage_threshold",
         "forecast_status",
     )
