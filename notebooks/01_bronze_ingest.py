@@ -2,8 +2,10 @@
 # MAGIC %md
 # MAGIC # 01 - Bronze ingest
 # MAGIC
-# MAGIC Incrementally ingest raw construction equipment telemetry into a Delta bronze table with Auto Loader.
-# MAGIC Bronze keeps the source-shaped records and adds lineage metadata.
+# MAGIC Incrementally ingest immutable construction-equipment telemetry objects
+# MAGIC into a Delta bronze table with Auto Loader. Bronze keeps the source-shaped
+# MAGIC records and records content-addressed lineage for incremental and explicit
+# MAGIC backfill objects.
 
 # COMMAND ----------
 
@@ -47,6 +49,11 @@ from lakehouse_demo.azure_ingestion import (  # noqa: E402
     build_adls_oauth_conf,
     quote_sql_identifier,
     resolve_ingestion_paths,
+)
+from lakehouse_demo.ingestion_identity import parse_object_name  # noqa: E402
+from lakehouse_demo.spark_ingestion_identity import (  # noqa: E402
+    IDENTITY_COLUMNS,
+    with_ingestion_identity,
 )
 from lakehouse_demo.spark_medallion import raw_machine_event_schema  # noqa: E402
 
@@ -158,13 +165,87 @@ if unity_catalog_volume and create_unity_catalog_volume:
 
 # COMMAND ----------
 
+
+def _is_directory(file_info):
+    is_dir = getattr(file_info, "isDir", None)
+    if callable(is_dir):
+        return bool(is_dir())
+    return str(file_info.path).endswith("/")
+
+
+def _list_landing_files(root_path, *, max_entries=1000, max_depth=8):
+    pending = [(root_path, 0)]
+    files = []
+    inspected_entries = 0
+
+    while pending:
+        current_path, depth = pending.pop()
+        if depth > max_depth:
+            raise ValueError("Landing directory exceeds the bounded nesting depth")
+        try:
+            entries = dbutils.fs.ls(current_path)
+        except Exception:
+            raise ValueError("Landing directory could not be enumerated") from None
+
+        for entry in entries:
+            inspected_entries += 1
+            if inspected_entries > max_entries:
+                raise ValueError("Landing directory exceeds the bounded entry count")
+            if _is_directory(entry):
+                pending.append((entry.path, depth + 1))
+            else:
+                files.append(entry.path)
+
+    return files
+
+
+def _preflight_immutable_landing(root_path):
+    landing_files = _list_landing_files(root_path)
+    invalid_count = 0
+    for landing_file in landing_files:
+        object_name = str(landing_file).rstrip("/").rsplit("/", 1)[-1]
+        try:
+            parse_object_name(object_name)
+        except ValueError:
+            invalid_count += 1
+
+    if invalid_count:
+        raise ValueError(
+            f"{invalid_count} landing objects violate the immutable identity contract"
+        )
+    if not landing_files:
+        raise ValueError("No immutable landing objects are available for ingestion")
+
+
+_preflight_immutable_landing(source_path)
+
+if spark.catalog.tableExists(bronze_table):
+    existing_bronze = spark.table(bronze_table)
+    missing_identity_columns = sorted(set(IDENTITY_COLUMNS).difference(existing_bronze.columns))
+    if missing_identity_columns and existing_bronze.limit(1).count():
+        raise ValueError(
+            "Existing bronze data predates the immutable source identity contract; "
+            "complete the documented migration before ingestion"
+        )
+    if not missing_identity_columns:
+        invalid_existing_rows = existing_bronze.where(
+            ~F.coalesce(F.col("_source_identity_valid"), F.lit(False))
+        ).limit(1).count()
+        if invalid_existing_rows:
+            raise ValueError(
+                "Existing bronze data contains an invalid immutable source identity"
+            )
+
+# COMMAND ----------
+
 raw_schema = raw_machine_event_schema()
 
-bronze_stream = (
+bronze_stream = with_ingestion_identity(
     spark.readStream.format("cloudFiles")
     .option("cloudFiles.format", "csv")
     .option("cloudFiles.schemaLocation", schema_location)
     .option("cloudFiles.includeExistingFiles", True)
+    .option("cloudFiles.allowOverwrites", False)
     .option("header", True)
     .schema(raw_schema)
     .load(source_path)
@@ -184,8 +265,15 @@ query = (
 
 query.awaitTermination()
 
-row_count = spark.table(bronze_table).count()
+bronze = spark.table(bronze_table)
+row_count = bronze.count()
 if row_count == 0:
     raise ValueError(f"No records were ingested from files in {source_path}")
 
-display(spark.table(bronze_table))
+invalid_identity_count = bronze.where(
+    ~F.coalesce(F.col("_source_identity_valid"), F.lit(False))
+).limit(1).count()
+if invalid_identity_count:
+    raise ValueError("Bronze contains rows without a governed immutable source identity")
+
+display(bronze)
