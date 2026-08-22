@@ -39,6 +39,10 @@ class ManualDeploymentContractTest(unittest.TestCase):
         )
         self.assertIn("needs: diff-dev", workflow)
         self.assertIn("needs: diff-prod", workflow)
+        self.assertIn("environment: dev-plan", workflow)
+        self.assertIn("environment: prod-plan", workflow)
+        self.assertEqual(4, workflow.count("github.ref == 'refs/heads/main'"))
+        self.assertIn("Require protected main ref", workflow)
 
     def test_optional_runtime_side_effects_default_off_and_governed(self):
         workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")

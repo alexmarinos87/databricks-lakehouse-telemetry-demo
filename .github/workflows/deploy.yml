@@ -73,6 +73,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Require protected main ref
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Databricks plan and apply workflows may run only from main" >&2
+            exit 2
+          fi
+
       - name: Build validation image
         run: docker build -f Dockerfile.ci -t lakehouse-demo-ci .
 
@@ -82,10 +89,10 @@ jobs:
   diff-dev:
     name: Diff dev
     needs: test
-    if: github.event.inputs.target == 'dev'
+    if: github.event.inputs.target == 'dev' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: dev
+    environment: dev-plan
     permissions:
       contents: read
       id-token: write
@@ -145,7 +152,7 @@ jobs:
   deploy-dev:
     name: Deploy dev
     needs: diff-dev
-    if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true'
+    if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: dev
@@ -296,10 +303,10 @@ jobs:
   diff-prod:
     name: Diff prod
     needs: test
-    if: github.event.inputs.target == 'prod'
+    if: github.event.inputs.target == 'prod' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: prod
+    environment: prod-plan
     permissions:
       contents: read
       id-token: write
@@ -359,7 +366,7 @@ jobs:
   deploy-prod:
     name: Deploy prod
     needs: diff-prod
-    if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true'
+    if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: prod

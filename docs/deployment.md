@@ -33,18 +33,24 @@ Docker is used only for repeatable repository validation. Kubernetes is not part
 
 ## GitHub Environments
 
-Create these environments:
+Create four environments:
 
 ```text
+dev-plan
+prod-plan
 dev
 prod
 ```
 
-Require reviewers on `prod`. Require a reviewer on `dev` as well when it is a shared integration workspace. Both the plan and apply jobs use the selected environment, so the environment name is part of the GitHub OIDC subject.
+`dev-plan` and `prod-plan` generate authenticated evidence before any apply approval. `dev` and `prod` protect the state-changing jobs. Require reviewers on `prod`; require a reviewer on `dev` as well when it is a shared integration workspace. Plan environments may omit reviewers so evidence can be generated before an apply decision, but all four environments must restrict deployment branches to `main`.
+
+The workflow also fails when `GITHUB_REF` is not `refs/heads/main`, so environment branch rules are defense in depth rather than the only control.
 
 Expected subjects:
 
 ```text
+repo:alexmarinos87/databricks-lakehouse-telemetry-demo:environment:dev-plan
+repo:alexmarinos87/databricks-lakehouse-telemetry-demo:environment:prod-plan
 repo:alexmarinos87/databricks-lakehouse-telemetry-demo:environment:dev
 repo:alexmarinos87/databricks-lakehouse-telemetry-demo:environment:prod
 ```
@@ -69,7 +75,7 @@ permissions:
 
 `id-token: write` permits a short-lived GitHub OIDC token request. It does not grant repository write access. Databricks remains responsible for accepting the token and mapping it to the configured service principal.
 
-Configure these values independently in `dev` and `prod`:
+Configure these values independently in `dev-plan`, `prod-plan`, `dev`, and `prod`:
 
 ```text
 DATABRICKS_HOST
