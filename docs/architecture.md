@@ -5,8 +5,8 @@ This project demonstrates a compact Databricks Lakehouse pattern using synthetic
 ## Medallion Flow
 
 ```text
-CSV files in cloud storage
-  -> Auto Loader
+Immutable CSV objects in cloud storage
+  -> Auto Loader with a persistent checkpoint
   -> bronze_machine_events
   -> silver_machine_events
   -> gold_machine_uptime
@@ -24,19 +24,35 @@ CSV files in cloud storage
 
 `bronze_machine_events` is populated by Auto Loader from a cloud-file landing directory. The notebook uses `availableNow` so it can be run as a scheduled incremental batch: each run processes files available at start time and stops after the backlog is complete.
 
-The table stores the raw CSV-shaped records and adds ingestion metadata:
+Governed uploads use an immutable object identity rather than overwriting a filename already known to Auto Loader:
+
+```text
+machine-events__incremental__sha256_<digest>.csv
+machine-events__backfill__replay_<replay-id>__sha256_<digest>.csv
+```
+
+The planner binds a repository source path, byte length, full SHA-256 digest, destination and the `reuse_existing_checkpoint` policy into a deterministic manifest. The uploader never requests overwrite, verifies an existing destination byte-for-byte before treating it as an idempotent skip, and requires a distinct replay ID for an intentional backfill.
+
+The bronze notebook recursively preflights the bounded landing root, rejects unmanaged object names, explicitly keeps `cloudFiles.allowOverwrites` false and records:
 
 - `_ingested_at`
 - `_source_file`
+- `_source_object_name`
+- `_ingestion_mode`
+- `_replay_id`
+- `_source_content_sha256`
+- `_source_identity_valid`
 
-The bronze layer is intentionally close to source so that downstream assumptions can be audited.
+The bronze layer is intentionally close to source so that downstream assumptions can be audited. Silver event identity remains the row-level replay boundary: an immutable backfill object can be newly discovered by Auto Loader, while identical and conflicting event payloads are still classified downstream.
 
 Auto Loader state is stored outside the Delta table:
 
-- `checkpoint_path` tracks stream progress and processed files.
+- `checkpoint_path` tracks stream progress and processed file identities.
 - `schema_location` stores the Auto Loader schema metadata.
 
-By default, the demo uses DBFS paths so it works in a small workspace. For a governed workspace, set `unity_catalog_volume` and the bronze task resolves the raw source, checkpoint and schema metadata paths under `/Volumes/<catalog>/<schema>/<volume>/`. Direct ADLS paths remain available for workspaces that prefer external cloud URI configuration.
+Normal incremental delivery and explicit backfill both reuse the existing checkpoint. Repository code does not clear checkpoint or schema state as a replay mechanism. A checkpoint reset is an incident-level recovery decision requiring the Bronze table and downstream state to be assessed together.
+
+By default, the demo uses DBFS paths so it works in a small workspace. For a governed workspace, set `unity_catalog_volume` and the bronze task resolves the raw source, checkpoint and schema metadata paths under `/Volumes/<catalog>/<schema>/<volume>/`. Direct ADLS paths remain available for workspaces that prefer external cloud URI configuration; external uploaders must implement the same immutable identity and no-overwrite contract.
 
 ## Silver
 
@@ -45,11 +61,11 @@ By default, the demo uses DBFS paths so it works in a small workspace. For a gov
 - Casts timestamps and numeric fields.
 - Normalizes categorical values.
 - Removes records with missing required business keys.
-- Deduplicates on `event_id`.
+- Classifies identical replay payloads separately from conflicting payloads sharing an event ID.
 - Adds `is_failure_event`.
 - Adds a simple operational `health_score`.
 
-Invalid records are written to `silver_quarantine_machine_events`.
+Invalid records and conflicting event-ID payloads are written to `silver_quarantine_machine_events`.
 
 ## Gold
 
@@ -91,9 +107,9 @@ The `04_quality_checks.py` notebook validates:
 - Silver event IDs are unique.
 - Required silver keys are populated.
 - Operational metrics are non-negative.
-- Gold tables contain rows.
+- Gold and warehouse tables contain rows and satisfy their technical invariants.
 
-The results are stored in `quality_check_results`, giving a simple audit surface for the pipeline.
+The results are stored in `quality_check_results` with run-level history.
 
 `06_lakeflow_quality_expectations.py` adds declarative expectations over selected trusted outputs:
 
@@ -115,7 +131,7 @@ The Databricks bundle configuration deploys the lakehouse pipeline as a workflow
 6. `forecast_validation`
 7. `quality_expectations_pipeline`
 
-The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the Auto Loader source, checkpoint and schema-location paths. The forecast task runs after the error-level quality gate and receives configurable baseline window, horizon and minimum-validation settings. The final task refreshes the Lakeflow quality-expectations pipeline.
+The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the stable Auto Loader source, checkpoint and schema-location paths. The optional GitHub sample upload chooses an initial or dated increment fixture, an incremental or backfill mode, and a replay ID when required; it creates immutable objects without altering stream state.
 
 ## Deployment And Access
 
@@ -129,3 +145,5 @@ The bundle manages least-privilege access for the main Databricks resources:
 - Unity Catalog schema and volume grants are defined in `resources/access_controls.yml`.
 
 Saved Databricks SQL queries are published after bundle deployment so reporting assets appear under SQL Queries instead of only existing as repository files.
+
+Repository and local Spark tests prove deterministic immutable naming, manifest tamper detection, uploader command construction, lineage extraction and existing transformation contracts. They do not prove Files API behaviour, workspace permissions or live Auto Loader discovery; those remain authenticated runtime evidence.
