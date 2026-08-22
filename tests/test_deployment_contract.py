@@ -15,11 +15,15 @@ ACCESS_CONTROLS = REPO_ROOT / "resources" / "access_controls.yml"
 SQL_REPORTING = REPO_ROOT / "resources" / "sql_reporting.yml"
 QUERY_SCRIPT = REPO_ROOT / "scripts" / "upsert_reporting_queries.py"
 GRANT_SCRIPT = REPO_ROOT / "scripts" / "apply_uc_grants.py"
+PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
 QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
 FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
 CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 SETUP_CLI_SHA = "databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121"
+UPLOAD_ARTIFACT_SHA = (
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+)
 PYTHON_IMAGE = (
     "python:3.11-slim@sha256:"
     "9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7"
@@ -52,6 +56,7 @@ class DeploymentContractTest(unittest.TestCase):
 
         deploy = workflows["deploy"]
         self.assertIn(SETUP_CLI_SHA, deploy)
+        self.assertIn(UPLOAD_ARTIFACT_SHA, deploy)
         self.assertNotIn("databricks/setup-cli@main", deploy)
         self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
 
@@ -72,8 +77,14 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("diff-prod:", workflow)
         self.assertIn("deploy-prod:", workflow)
         self.assertIn("environment: prod", workflow)
-        self.assertIn("databricks bundle plan -t dev", workflow)
+        self.assertEqual(4, workflow.count("scripts/capture_databricks_plan.py"))
+        self.assertEqual(2, workflow.count("--mode plan"))
         self.assertIn("databricks bundle deploy -t prod", workflow)
+        self.assertNotIn("databricks bundle plan -t", workflow)
+        self.assertIn(
+            "DEFAULT_PLAN_TIMEOUT_SECONDS",
+            PLAN_SCRIPT.read_text(encoding="utf-8"),
+        )
         self.assertGreaterEqual(workflow.count("--statement-timeout-seconds 180"), 4)
         self.assertGreaterEqual(workflow.count("--command-timeout-seconds 60"), 6)
         self.assertGreaterEqual(workflow.count("--poll-interval-seconds 5"), 4)

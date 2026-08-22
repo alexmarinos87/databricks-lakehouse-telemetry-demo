@@ -36,7 +36,9 @@ EXPECTED_TARGET_VALUES = {
 def target_block(bundle: str, target: str) -> str:
     targets_start = bundle.index("targets:\n")
     target_start = bundle.index(f"  {target}:\n", targets_start)
-    next_target = re.search(r"^  [a-zA-Z0-9_-]+:\n", bundle[target_start + 1 :], re.MULTILINE)
+    next_target = re.search(
+        r"^  [a-zA-Z0-9_-]+:\n", bundle[target_start + 1 :], re.MULTILINE
+    )
     if next_target is None:
         return bundle[target_start:]
     return bundle[target_start : target_start + 1 + next_target.start()]
@@ -111,7 +113,17 @@ class TargetIsolationContractTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             workflow.count('--var="schema=${BUNDLE_SCHEMA}"'),
-            8,
+            4,
+        )
+        self.assertEqual(
+            2,
+            workflow.count('--bundle-var "schema=${BUNDLE_SCHEMA}"'),
+        )
+        self.assertEqual(
+            2,
+            workflow.count(
+                '--bundle-var "unity_catalog_volume=${UNITY_CATALOG_VOLUME}"'
+            ),
         )
         self.assertIn(
             "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}",
