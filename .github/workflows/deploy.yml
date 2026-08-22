@@ -56,9 +56,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
   NODE_TYPE_ID: ${{ vars.DATABRICKS_NODE_TYPE_ID || 'i3.xlarge' }}
   ADMIN_GROUP_NAME: ${{ vars.DATABRICKS_ADMIN_GROUP || 'lakehouse-demo-admins' }}
   ENGINEER_GROUP_NAME: ${{ vars.DATABRICKS_ENGINEER_GROUP || 'lakehouse-demo-engineers' }}
@@ -76,6 +73,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Require protected main ref
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Databricks plan and apply workflows may run only from main" >&2
+            exit 2
+          fi
+
       - name: Build validation image
         run: docker build -f Dockerfile.ci -t lakehouse-demo-ci .
 
@@ -85,14 +89,21 @@ jobs:
   diff-dev:
     name: Diff dev
     needs: test
-    if: github.event.inputs.target == 'dev'
+    if: github.event.inputs.target == 'dev' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: dev
+    environment: dev-plan
+    permissions:
+      contents: read
+      id-token: write
     env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST || secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID || secrets.DATABRICKS_CLIENT_ID }}
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
+      PLAN_EVIDENCE_DIR: output/databricks-plan/dev
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -102,41 +113,60 @@ jobs:
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
-      - name: Validate dev bundle
+      - name: Capture authenticated dev plan evidence
         run: |
-          databricks bundle validate -t dev \
-            --var="catalog=${BUNDLE_CATALOG}" \
-            --var="schema=${BUNDLE_SCHEMA}" \
-            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
-            --var="node_type_id=${NODE_TYPE_ID}" \
-            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
-            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
-            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
-            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+          python3 scripts/capture_databricks_plan.py \
+            --target dev \
+            --mode plan \
+            --output-dir "${PLAN_EVIDENCE_DIR}" \
+            --bundle-var "catalog=${BUNDLE_CATALOG}" \
+            --bundle-var "schema=${BUNDLE_SCHEMA}" \
+            --bundle-var "unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --bundle-var "node_type_id=${NODE_TYPE_ID}" \
+            --bundle-var "admin_group_name=${ADMIN_GROUP_NAME}" \
+            --bundle-var "engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --bundle-var "analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --bundle-var "ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}" \
+            --identity-timeout-seconds 60 \
+            --validate-timeout-seconds 180 \
+            --plan-timeout-seconds 300
 
-      - name: Preview dev deployment
+      - name: Publish dev plan evidence summary
+        if: ${{ !cancelled() }}
         run: |
-          databricks bundle plan -t dev \
-            --var="catalog=${BUNDLE_CATALOG}" \
-            --var="schema=${BUNDLE_SCHEMA}" \
-            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
-            --var="node_type_id=${NODE_TYPE_ID}" \
-            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
-            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
-            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
-            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+          if [[ -f "${PLAN_EVIDENCE_DIR}/summary.md" ]]; then
+            cat "${PLAN_EVIDENCE_DIR}/summary.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Retain dev plan evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.PLAN_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          overwrite: false
 
   deploy-dev:
     name: Deploy dev
     needs: diff-dev
-    if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true'
+    if: github.event.inputs.target == 'dev' && github.event.inputs.apply_changes == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: dev
+    permissions:
+      contents: read
+      id-token: write
     env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST || secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID || secrets.DATABRICKS_CLIENT_ID }}
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
+      IDENTITY_EVIDENCE_DIR: output/databricks-identity/dev
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -145,6 +175,25 @@ jobs:
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+
+      - name: Verify dev deployment identity
+        run: |
+          python3 scripts/capture_databricks_plan.py \
+            --target dev \
+            --mode identity \
+            --output-dir "${IDENTITY_EVIDENCE_DIR}" \
+            --identity-timeout-seconds 60
+
+      - name: Retain dev deployment identity evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: databricks-dev-apply-identity-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.IDENTITY_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          overwrite: false
 
       - name: Deploy dev bundle
         run: |
@@ -254,14 +303,21 @@ jobs:
   diff-prod:
     name: Diff prod
     needs: test
-    if: github.event.inputs.target == 'prod'
+    if: github.event.inputs.target == 'prod' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: prod
+    environment: prod-plan
+    permissions:
+      contents: read
+      id-token: write
     env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST || secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID || secrets.DATABRICKS_CLIENT_ID }}
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_PROD_SCHEMA || 'lakehouse_demo_prod' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
+      PLAN_EVIDENCE_DIR: output/databricks-plan/prod
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -271,41 +327,60 @@ jobs:
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
 
-      - name: Validate prod bundle
+      - name: Capture authenticated prod plan evidence
         run: |
-          databricks bundle validate -t prod \
-            --var="catalog=${BUNDLE_CATALOG}" \
-            --var="schema=${BUNDLE_SCHEMA}" \
-            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
-            --var="node_type_id=${NODE_TYPE_ID}" \
-            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
-            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
-            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
-            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+          python3 scripts/capture_databricks_plan.py \
+            --target prod \
+            --mode plan \
+            --output-dir "${PLAN_EVIDENCE_DIR}" \
+            --bundle-var "catalog=${BUNDLE_CATALOG}" \
+            --bundle-var "schema=${BUNDLE_SCHEMA}" \
+            --bundle-var "unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --bundle-var "node_type_id=${NODE_TYPE_ID}" \
+            --bundle-var "admin_group_name=${ADMIN_GROUP_NAME}" \
+            --bundle-var "engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --bundle-var "analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --bundle-var "ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}" \
+            --identity-timeout-seconds 60 \
+            --validate-timeout-seconds 180 \
+            --plan-timeout-seconds 300
 
-      - name: Preview prod deployment
+      - name: Publish prod plan evidence summary
+        if: ${{ !cancelled() }}
         run: |
-          databricks bundle plan -t prod \
-            --var="catalog=${BUNDLE_CATALOG}" \
-            --var="schema=${BUNDLE_SCHEMA}" \
-            --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
-            --var="node_type_id=${NODE_TYPE_ID}" \
-            --var="admin_group_name=${ADMIN_GROUP_NAME}" \
-            --var="engineer_group_name=${ENGINEER_GROUP_NAME}" \
-            --var="analyst_group_name=${ANALYST_GROUP_NAME}" \
-            --var="ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}"
+          if [[ -f "${PLAN_EVIDENCE_DIR}/summary.md" ]]; then
+            cat "${PLAN_EVIDENCE_DIR}/summary.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Retain prod plan evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: databricks-prod-plan-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.PLAN_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          overwrite: false
 
   deploy-prod:
     name: Deploy prod
     needs: diff-prod
-    if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true'
+    if: github.event.inputs.target == 'prod' && github.event.inputs.apply_changes == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: prod
+    permissions:
+      contents: read
+      id-token: write
     env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST || secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID || secrets.DATABRICKS_CLIENT_ID }}
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_PROD_SCHEMA || 'lakehouse_demo_prod' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
+      IDENTITY_EVIDENCE_DIR: output/databricks-identity/prod
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -314,6 +389,25 @@ jobs:
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+
+      - name: Verify prod deployment identity
+        run: |
+          python3 scripts/capture_databricks_plan.py \
+            --target prod \
+            --mode identity \
+            --output-dir "${IDENTITY_EVIDENCE_DIR}" \
+            --identity-timeout-seconds 60
+
+      - name: Retain prod deployment identity evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: databricks-prod-apply-identity-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.IDENTITY_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          overwrite: false
 
       - name: Deploy prod bundle
         run: |
