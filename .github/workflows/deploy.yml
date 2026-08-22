@@ -22,10 +22,31 @@ on:
         type: boolean
         default: false
       upload_sample_data:
-        description: Upload synthetic sample data before running the workflow.
+        description: Upload one governed synthetic data object before running the workflow.
         required: true
         type: boolean
         default: false
+      demo_dataset:
+        description: Repository fixture to upload when sample upload is enabled.
+        required: true
+        type: choice
+        options:
+          - initial
+          - increment-2026-04-03
+        default: initial
+      ingestion_mode:
+        description: Incremental creates a content-addressed object; backfill also requires a unique replay ID.
+        required: true
+        type: choice
+        options:
+          - incremental
+          - backfill
+        default: incremental
+      backfill_id:
+        description: Required only for backfill; use a reviewed incident or repair identifier.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -153,14 +174,36 @@ jobs:
             --statement-timeout-seconds 180 \
             --poll-interval-seconds 5
 
-      - name: Upload sample data
+      - name: Upload governed dev sample data
         if: github.event.inputs.upload_sample_data == 'true'
+        env:
+          DEMO_DATASET: ${{ github.event.inputs.demo_dataset }}
+          INGESTION_MODE: ${{ github.event.inputs.ingestion_mode }}
+          BACKFILL_ID: ${{ github.event.inputs.backfill_id }}
         run: |
-          databricks fs mkdirs "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
-          databricks fs cp \
-            data/sample_machine_events.csv \
-            "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events/sample_machine_events.csv" \
-            --overwrite
+          case "${DEMO_DATASET}" in
+            initial)
+              source_file="data/sample_machine_events.csv"
+              ;;
+            increment-2026-04-03)
+              source_file="data/increments/machine_events_increment_2026_04_03.csv"
+              ;;
+            *)
+              echo "Unsupported governed demo dataset" >&2
+              exit 2
+              ;;
+          esac
+          destination_root="dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
+          python3 scripts/plan_ingestion_upload.py \
+            --source "${source_file}" \
+            --destination-root "${destination_root}" \
+            --mode "${INGESTION_MODE}" \
+            --replay-id "${BACKFILL_ID}" \
+            --output .ingestion/dev-upload-plan.json
+          python3 scripts/upload_ingestion_plan.py \
+            --target dev \
+            --manifest .ingestion/dev-upload-plan.json \
+            --command-timeout-seconds 60
 
       - name: Run dev workflow
         if: github.event.inputs.run_workflow == 'true'
@@ -300,14 +343,36 @@ jobs:
             --statement-timeout-seconds 180 \
             --poll-interval-seconds 5
 
-      - name: Upload sample data
+      - name: Upload governed prod sample data
         if: github.event.inputs.upload_sample_data == 'true'
+        env:
+          DEMO_DATASET: ${{ github.event.inputs.demo_dataset }}
+          INGESTION_MODE: ${{ github.event.inputs.ingestion_mode }}
+          BACKFILL_ID: ${{ github.event.inputs.backfill_id }}
         run: |
-          databricks fs mkdirs "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
-          databricks fs cp \
-            data/sample_machine_events.csv \
-            "dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events/sample_machine_events.csv" \
-            --overwrite
+          case "${DEMO_DATASET}" in
+            initial)
+              source_file="data/sample_machine_events.csv"
+              ;;
+            increment-2026-04-03)
+              source_file="data/increments/machine_events_increment_2026_04_03.csv"
+              ;;
+            *)
+              echo "Unsupported governed demo dataset" >&2
+              exit 2
+              ;;
+          esac
+          destination_root="dbfs:/Volumes/${BUNDLE_CATALOG}/${BUNDLE_SCHEMA}/${UNITY_CATALOG_VOLUME}/raw_machine_events"
+          python3 scripts/plan_ingestion_upload.py \
+            --source "${source_file}" \
+            --destination-root "${destination_root}" \
+            --mode "${INGESTION_MODE}" \
+            --replay-id "${BACKFILL_ID}" \
+            --output .ingestion/prod-upload-plan.json
+          python3 scripts/upload_ingestion_plan.py \
+            --target prod \
+            --manifest .ingestion/prod-upload-plan.json \
+            --command-timeout-seconds 60
 
       - name: Run prod workflow
         if: github.event.inputs.run_workflow == 'true'
