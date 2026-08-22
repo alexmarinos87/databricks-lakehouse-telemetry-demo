@@ -90,14 +90,20 @@ Saved Databricks SQL assets join these facts to their dimensions, so reporting c
 
 ## Forecast Validation
 
-`05_forecast_validation.py` adds a transparent baseline forecasting layer on top of `gold_machine_uptime`.
+`05_forecast_validation.py` delegates to the shared executable logic in `src/lakehouse_demo/spark_forecast.py` and adds a transparent baseline forecasting layer on top of `gold_machine_uptime`.
 
 The notebook creates:
 
 - `gold_downtime_forecast_validation`: historical rolling-baseline predictions with actual downtime, forecast error fields and interval coverage flags.
-- `gold_downtime_forecast`: next-horizon downtime forecasts with validation metrics, interval bounds, backtest interval coverage and a readiness status.
+- `gold_downtime_forecast`: next-horizon downtime forecasts with validation metrics, interval bounds, backtest interval coverage and an explicit readiness status.
 
-The baseline uses recent daily downtime by site, client and model. It is intentionally simple so that BI users can see the assumptions and error profile before using forecast output in client-facing narratives.
+The baseline uses available observations within prior **calendar-day** windows by site, client and model. Missing dates are not treated as adjacent observations, and the current validation day is excluded from its own baseline. Window membership uses date ordinals rather than elapsed epoch seconds, so daylight-saving transitions do not change which calendar dates are included.
+
+A minimum sample count alone cannot produce `validated_baseline`. The two bundle variables `max_mae_downtime_minutes` and `min_interval_coverage_pct` must both be configured, and both checks must pass. Blank defaults produce `thresholds_not_configured`, preserving a fail-closed distinction between a technical forecast and a client-ready claim. Other states distinguish insufficient history and failed accuracy thresholds.
+
+The workflow passes `job_{{job.run_id}}` into the forecast output so reporting and runtime evidence can identify the Databricks job run that generated the current publication. The current tables are still overwritten; append-only forecast vintages and a committed publication boundary remain a separate increment.
+
+The baseline is intentionally simple so that BI users can see the assumptions and error profile before using forecast output in client-facing narratives.
 
 ## Governance And Quality
 
@@ -115,7 +121,7 @@ The results are stored in `quality_check_results` with run-level history.
 
 - `quality_expectation_silver_machine_events`: required keys, metric ranges and health-score bounds.
 - `quality_expectation_gold_machine_uptime`: uptime, downtime and observed-minute checks.
-- `quality_expectation_downtime_forecast`: forecast interval, validation-count and status checks.
+- `quality_expectation_downtime_forecast`: forecast interval, validation-count, threshold-evidence and status checks.
 
 The Lakeflow pipeline writes expectation metrics to `quality_expectation_event_log`, which gives a managed event stream for monitoring expectation pass and fail counts.
 
@@ -131,7 +137,7 @@ The Databricks bundle configuration deploys the lakehouse pipeline as a workflow
 6. `forecast_validation`
 7. `quality_expectations_pipeline`
 
-The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the stable Auto Loader source, checkpoint and schema-location paths. The optional GitHub sample upload chooses an initial or dated increment fixture, an incremental or backfill mode, and a replay ID when required; it creates immutable objects without altering stream state.
+The workflow uses a shared job cluster for notebook tasks and passes the same catalog and schema parameters into each notebook. The bronze task also receives the stable Auto Loader source, checkpoint and schema-location paths. The optional GitHub sample upload chooses an initial or dated increment fixture, an incremental or backfill mode, and a replay ID when required; it creates immutable objects without altering stream state. The forecast task runs after the error-level quality gate and receives configurable calendar window, horizon, minimum-validation and optional accuracy-threshold settings plus the dynamic job-run identifier. The final task refreshes the Lakeflow quality-expectations pipeline.
 
 ## Deployment And Access
 
@@ -146,4 +152,4 @@ The bundle manages least-privilege access for the main Databricks resources:
 
 Saved Databricks SQL queries are published after bundle deployment so reporting assets appear under SQL Queries instead of only existing as repository files.
 
-Repository and local Spark tests prove deterministic immutable naming, manifest tamper detection, uploader command construction, lineage extraction and existing transformation contracts. They do not prove Files API behaviour, workspace permissions or live Auto Loader discovery; those remain authenticated runtime evidence.
+Repository and local Spark tests prove deterministic immutable naming, manifest tamper detection, uploader command construction, ingestion lineage, calendar-window readiness logic and existing transformation contracts. They do not prove Files API behaviour, Databricks Runtime execution, workspace permissions or live Auto Loader discovery; those remain authenticated runtime evidence.

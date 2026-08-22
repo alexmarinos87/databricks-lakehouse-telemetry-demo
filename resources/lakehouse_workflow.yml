@@ -101,6 +101,9 @@ resources:
               baseline_window_days: ${var.baseline_window_days}
               forecast_horizon_days: ${var.forecast_horizon_days}
               min_validation_observations: ${var.min_validation_observations}
+              max_mae_downtime_minutes: ${var.max_mae_downtime_minutes}
+              min_interval_coverage_pct: ${var.min_interval_coverage_pct}
+              forecast_run_id: "job_{{job.run_id}}"
 
         - task_key: quality_expectations_pipeline
           depends_on:

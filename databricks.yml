@@ -63,14 +63,20 @@ variables:
     description: Optional Databricks secret key holding the ADLS service-principal secret.
     default: ""
   baseline_window_days:
-    description: Number of recent daily observations used by the downtime forecast baseline.
+    description: Number of prior calendar days considered by the downtime forecast baseline.
     default: "2"
   forecast_horizon_days:
-    description: Number of days ahead produced by the downtime forecast task.
+    description: Number of calendar days ahead produced by the downtime forecast task.
     default: "1"
   min_validation_observations:
-    description: Minimum backtest rows required before a forecast segment is marked validated.
+    description: Minimum backtest rows required before accuracy thresholds are evaluated.
     default: "2"
+  max_mae_downtime_minutes:
+    description: Maximum accepted forecast MAE in minutes. Leave blank to prevent client-ready validation.
+    default: ""
+  min_interval_coverage_pct:
+    description: Minimum accepted backtest interval coverage percentage. Leave blank to prevent client-ready validation.
+    default: ""
   admin_group_name:
     description: Databricks group with management access to project resources.
     default: lakehouse-demo-admins

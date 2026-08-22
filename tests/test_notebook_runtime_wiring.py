@@ -7,6 +7,7 @@ BRONZE = REPO_ROOT / "notebooks" / "01_bronze_ingest.py"
 SILVER = REPO_ROOT / "notebooks" / "02_silver_transform.py"
 GOLD = REPO_ROOT / "notebooks" / "03_gold_models.py"
 QUALITY = REPO_ROOT / "notebooks" / "04_quality_checks.py"
+FORECAST = REPO_ROOT / "notebooks" / "05_forecast_validation.py"
 WAREHOUSE = REPO_ROOT / "notebooks" / "07_warehouse_model.py"
 
 
@@ -23,7 +24,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertNotIn("StructType(", notebook)
 
     def test_transformation_notebooks_add_repository_source_path(self):
-        for path in (SILVER, GOLD, QUALITY, WAREHOUSE):
+        for path in (SILVER, GOLD, QUALITY, FORECAST, WAREHOUSE):
             with self.subTest(path=path.name):
                 notebook = path.read_text(encoding="utf-8")
                 self.assertIn("def _add_project_src_to_path():", notebook)
@@ -97,6 +98,24 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         )
         self.assertNotIn("str(exc)", notebook)
         self.assertNotIn("except Exception as", notebook)
+
+    def test_forecast_uses_shared_calendar_and_readiness_logic(self):
+        notebook = FORECAST.read_text(encoding="utf-8")
+
+        self.assertIn("from lakehouse_demo.spark_forecast import", notebook)
+        self.assertIn("ForecastConfig", notebook)
+        self.assertIn("build_forecast_frames", notebook)
+        self.assertIn("forecast_run_id", notebook)
+        self.assertIn("max_mae_downtime_minutes", notebook)
+        self.assertIn("min_interval_coverage_pct", notebook)
+        self.assertIn('forecast_frames["validation"]', notebook)
+        self.assertIn('forecast_frames["forecast"]', notebook)
+        self.assertLess(
+            notebook.index("build_forecast_frames("),
+            notebook.index(".saveAsTable("),
+        )
+        self.assertNotIn("Window.partitionBy", notebook)
+        self.assertNotIn(".groupBy(", notebook)
 
     def test_warehouse_audits_shared_outputs_before_publication(self):
         notebook = WAREHOUSE.read_text(encoding="utf-8")
