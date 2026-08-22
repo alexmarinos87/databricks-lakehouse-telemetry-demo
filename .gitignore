@@ -20,6 +20,7 @@ derby.log
 tmp/
 output/
 .review/
+.ingestion/
 review-package.md
 *.parquet/
 *.delta/
