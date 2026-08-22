@@ -1,0 +1,114 @@
+name: Comment-triggered Databricks plan evidence
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: databricks-plan-command-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dev-plan:
+    name: Authenticated dev plan
+    if: >-
+      github.event.issue.number == 44 &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '/databricks-plan dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: dev-plan
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
+      BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
+      UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
+      NODE_TYPE_ID: ${{ vars.DATABRICKS_NODE_TYPE_ID || 'i3.xlarge' }}
+      ADMIN_GROUP_NAME: ${{ vars.DATABRICKS_ADMIN_GROUP || 'lakehouse-demo-admins' }}
+      ENGINEER_GROUP_NAME: ${{ vars.DATABRICKS_ENGINEER_GROUP || 'lakehouse-demo-engineers' }}
+      ANALYST_GROUP_NAME: ${{ vars.DATABRICKS_ANALYST_GROUP || 'lakehouse-demo-analysts' }}
+      CI_SERVICE_PRINCIPAL_NAME: ${{ vars.DATABRICKS_CI_SERVICE_PRINCIPAL || 'lakehouse-demo-ci' }}
+      PLAN_EVIDENCE_DIR: output/databricks-plan/dev-command
+      ARTIFACT_NAME: databricks-dev-plan-command-${{ github.sha }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out accepted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify checked-out ref
+        run: |
+          if [[ "$(git branch --show-current)" != "main" ]]; then
+            echo "Plan command must check out main" >&2
+            exit 2
+          fi
+          git rev-parse HEAD > accepted-main-sha.txt
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+
+      - name: Capture authenticated dev plan evidence
+        run: |
+          python3 scripts/capture_databricks_plan.py \
+            --target dev \
+            --mode plan \
+            --output-dir "${PLAN_EVIDENCE_DIR}" \
+            --bundle-var "catalog=${BUNDLE_CATALOG}" \
+            --bundle-var "schema=${BUNDLE_SCHEMA}" \
+            --bundle-var "unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
+            --bundle-var "node_type_id=${NODE_TYPE_ID}" \
+            --bundle-var "admin_group_name=${ADMIN_GROUP_NAME}" \
+            --bundle-var "engineer_group_name=${ENGINEER_GROUP_NAME}" \
+            --bundle-var "analyst_group_name=${ANALYST_GROUP_NAME}" \
+            --bundle-var "ci_service_principal_name=${CI_SERVICE_PRINCIPAL_NAME}" \
+            --identity-timeout-seconds 60 \
+            --validate-timeout-seconds 180 \
+            --plan-timeout-seconds 300
+
+      - name: Retain dev plan evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.PLAN_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          overwrite: false
+
+      - name: Record plan result on bootstrap issue
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          accepted_sha="unknown"
+          if [[ -f accepted-main-sha.txt ]]; then
+            accepted_sha="$(cat accepted-main-sha.txt)"
+          fi
+          cat > /tmp/plan-comment.md <<EOF
+          ## Comment-triggered development plan
+
+          - status: ${JOB_STATUS}
+          - accepted main: \`${accepted_sha}\`
+          - run: ${RUN_URL}
+          - artifact: \`${ARTIFACT_NAME}\`
+          - apply, upload and workflow execution: not requested
+
+          Provider output is retained only in the bounded workflow evidence artifact when capture succeeds. A failed run is evidence of an incomplete external bootstrap, not permission to add a static client secret.
+          EOF
+          gh api "repos/${GITHUB_REPOSITORY}/issues/44/comments" \
+            -f body="$(cat /tmp/plan-comment.md)"
