@@ -99,23 +99,43 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertNotIn("str(exc)", notebook)
         self.assertNotIn("except Exception as", notebook)
 
-    def test_forecast_uses_shared_calendar_and_readiness_logic(self):
+    def test_forecast_uses_shared_logic_and_manifest_last_publication(self):
         notebook = FORECAST.read_text(encoding="utf-8")
 
         self.assertIn("from lakehouse_demo.spark_forecast import", notebook)
+        self.assertIn(
+            "from lakehouse_demo.spark_forecast_publication import",
+            notebook,
+        )
         self.assertIn("ForecastConfig", notebook)
         self.assertIn("build_forecast_frames", notebook)
+        self.assertIn("build_publication_manifest", notebook)
+        self.assertIn("audit_publication_run", notebook)
         self.assertIn("forecast_run_id", notebook)
         self.assertIn("max_mae_downtime_minutes", notebook)
         self.assertIn("min_interval_coverage_pct", notebook)
         self.assertIn('forecast_frames["validation"]', notebook)
         self.assertIn('forecast_frames["forecast"]', notebook)
+        self.assertIn("gold_downtime_forecast_validation_history", notebook)
+        self.assertIn("gold_downtime_forecast_history", notebook)
+        self.assertIn("gold_downtime_forecast_publication_manifest", notebook)
+        self.assertIn(
+            'verb = "ALTER VIEW" if relation_type == "VIEW" else "CREATE VIEW"',
+            notebook,
+        )
+        self.assertNotIn("CREATE OR REPLACE VIEW", notebook)
+        self.assertIn("publication_state=STATE_FAILED", notebook)
         self.assertLess(
             notebook.index("build_forecast_frames("),
-            notebook.index(".saveAsTable("),
+            notebook.index("_merge_manifest(started_manifest)"),
+        )
+        self.assertLess(
+            notebook.index("persisted_findings = audit_publication_run("),
+            notebook.index("_merge_manifest(expected_committed_manifest)"),
         )
         self.assertNotIn("Window.partitionBy", notebook)
         self.assertNotIn(".groupBy(", notebook)
+        self.assertNotIn('.mode("overwrite")', notebook)
 
     def test_warehouse_audits_shared_outputs_before_publication(self):
         notebook = WAREHOUSE.read_text(encoding="utf-8")

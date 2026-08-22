@@ -28,18 +28,18 @@ class ForecastValidationContractTest(unittest.TestCase):
         self.assertIn("build_forecast_frames", notebook_source)
         self.assertIn('forecast_frames["validation"]', notebook_source)
         self.assertIn('forecast_frames["forecast"]', notebook_source)
-        self.assertIn("gold_downtime_forecast_validation", notebook_source)
-        self.assertIn("gold_downtime_forecast", notebook_source)
-        self.assertIn(".saveAsTable(forecast_validation_table)", notebook_source)
-        self.assertIn(".saveAsTable(forecast_table)", notebook_source)
+        self.assertIn("gold_downtime_forecast_validation_history", notebook_source)
+        self.assertIn("gold_downtime_forecast_history", notebook_source)
+        self.assertIn("gold_downtime_forecast_publication_manifest", notebook_source)
         self.assertNotIn("Window.partitionBy", notebook_source)
         self.assertNotIn(".groupBy(", notebook_source)
+        self.assertNotIn('.mode("overwrite")', notebook_source)
 
     def test_shared_forecast_logic_requires_explicit_accuracy_thresholds(self):
         module_source = FORECAST_MODULE.read_text(encoding="utf-8")
 
         self.assertIn("rangeBetween(", module_source)
-        self.assertIn("WINDOW_SEMANTICS = \"calendar_days\"", module_source)
+        self.assertIn('WINDOW_SEMANTICS = "calendar_days"', module_source)
         self.assertIn("STATUS_THRESHOLDS_NOT_CONFIGURED", module_source)
         self.assertIn("STATUS_ACCURACY_THRESHOLD_FAILED", module_source)
         self.assertIn("max_mae_downtime_minutes", module_source)
@@ -48,11 +48,11 @@ class ForecastValidationContractTest(unittest.TestCase):
         self.assertIn("meets_mae_threshold", module_source)
         self.assertIn("meets_interval_coverage_threshold", module_source)
         self.assertLess(
-            module_source.index("~F.col(\"meets_min_validation_samples\")"),
+            module_source.index('~F.col("meets_min_validation_samples")'),
             module_source.index("F.lit(STATUS_VALIDATED)"),
         )
         self.assertLess(
-            module_source.index("~F.col(\"thresholds_configured\")"),
+            module_source.index('~F.col("thresholds_configured")'),
             module_source.index("F.lit(STATUS_VALIDATED)"),
         )
 
@@ -101,11 +101,13 @@ class ForecastValidationContractTest(unittest.TestCase):
             bundle_source,
         )
 
-    def test_reporting_exposes_thresholds_and_run_provenance(self):
+    def test_reporting_exposes_thresholds_run_and_commit_provenance(self):
         for path in (REPORTING_SQL, REPORTING_ASSET):
             with self.subTest(path=path.name):
                 source = path.read_text(encoding="utf-8")
                 self.assertIn("forecast_run_id", source)
+                self.assertIn("forecast_generated_at", source)
+                self.assertIn("publication_completed_at_utc", source)
                 self.assertIn("window_semantics", source)
                 self.assertIn("thresholds_configured", source)
                 self.assertIn("max_mae_downtime_minutes", source)
@@ -125,6 +127,7 @@ class ForecastValidationContractTest(unittest.TestCase):
         ):
             self.assertIn(status, source)
         self.assertIn("forecast_run_id_present", source)
+        self.assertIn("publication_committed", source)
         self.assertIn("threshold_pair_consistent", source)
         self.assertIn("validated_status_is_evidenced", source)
 

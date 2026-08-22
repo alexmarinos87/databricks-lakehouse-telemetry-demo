@@ -1,6 +1,7 @@
 SELECT
   forecast_run_id,
   forecast_generated_at,
+  publication_completed_at_utc,
   forecast_date,
   latest_actual_date,
   site_id,
