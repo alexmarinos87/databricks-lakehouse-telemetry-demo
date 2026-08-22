@@ -14,8 +14,10 @@ Immutable CSV objects in cloud storage
   -> gold_maintenance_costs
   -> gold_parts_usage
   -> gold_client_asset_summary
-  -> gold_downtime_forecast_validation
-  -> gold_downtime_forecast
+  -> gold_downtime_forecast_validation_history
+  -> gold_downtime_forecast_history
+  -> gold_downtime_forecast_publication_manifest
+  -> latest-committed forecast views
   -> quality_expectation_* materialized views
   -> quality_expectation_event_log
 ```
@@ -88,22 +90,37 @@ The warehouse includes two fact tables:
 
 Saved Databricks SQL assets join these facts to their dimensions, so reporting consumers can use governed business labels without rebuilding joins in every report.
 
-## Forecast Validation
+## Forecast Validation And Publication
 
-`05_forecast_validation.py` delegates to the shared executable logic in `src/lakehouse_demo/spark_forecast.py` and adds a transparent baseline forecasting layer on top of `gold_machine_uptime`.
-
-The notebook creates:
-
-- `gold_downtime_forecast_validation`: historical rolling-baseline predictions with actual downtime, forecast error fields and interval coverage flags.
-- `gold_downtime_forecast`: next-horizon downtime forecasts with validation metrics, interval bounds, backtest interval coverage and an explicit readiness status.
+`05_forecast_validation.py` delegates forecast construction to `src/lakehouse_demo/spark_forecast.py` and publication evidence to `src/lakehouse_demo/spark_forecast_publication.py`.
 
 The baseline uses available observations within prior **calendar-day** windows by site, client and model. Missing dates are not treated as adjacent observations, and the current validation day is excluded from its own baseline. Window membership uses date ordinals rather than elapsed epoch seconds, so daylight-saving transitions do not change which calendar dates are included.
 
 A minimum sample count alone cannot produce `validated_baseline`. The two bundle variables `max_mae_downtime_minutes` and `min_interval_coverage_pct` must both be configured, and both checks must pass. Blank defaults produce `thresholds_not_configured`, preserving a fail-closed distinction between a technical forecast and a client-ready claim. Other states distinguish insufficient history and failed accuracy thresholds.
 
-The workflow passes `job_{{job.run_id}}` into the forecast output so reporting and runtime evidence can identify the Databricks job run that generated the current publication. The current tables are still overwritten; append-only forecast vintages and a committed publication boundary remain a separate increment.
+The workflow passes `job_{{job.run_id}}` into the forecast output so reporting and runtime evidence can identify the Databricks job run that generated a publication.
 
-The baseline is intentionally simple so that BI users can see the assumptions and error profile before using forecast output in client-facing narratives.
+### Versioned publication
+
+The notebook persists one retry-safe run vintage into:
+
+- `gold_downtime_forecast_validation_history`
+- `gold_downtime_forecast_history`
+
+It records the run in `gold_downtime_forecast_publication_manifest`. A run begins as `STARTED`. The notebook replaces only that run's uncommitted history rows, reads the persisted rows back, and verifies row counts, recorded schemas and bounded order-independent payload fingerprints. It changes the manifest to `COMMITTED` only after both histories reconcile.
+
+The governed consumer names remain:
+
+- `gold_downtime_forecast_validation`
+- `gold_downtime_forecast`
+
+These are views over the latest `COMMITTED` manifest row. A newer `STARTED` or `FAILED` run is therefore invisible to repository-controlled consumers. This is a **manifest-last visibility boundary**, not a cross-table Delta transaction: the two history writes and manifest update remain separate Delta transactions, but incomplete runs cannot become the selected current publication without the final committed manifest.
+
+A retry of an already committed run is read-only. The notebook reconciles the stored histories against the committed manifest and recreates or alters the views if needed. A retry of an incomplete run replaces only that run's history before attempting the commit again.
+
+The current names must be views. If legacy managed tables already use those names, the notebook fails before any publication write. The operator must preserve and rename the legacy tables using the recovery runbook before enabling versioned publication.
+
+The baseline remains intentionally simple so BI users can see the assumptions and error profile before using forecast output in client-facing narratives.
 
 ## Governance And Quality
 
@@ -121,7 +138,8 @@ The results are stored in `quality_check_results` with run-level history.
 
 - `quality_expectation_silver_machine_events`: required keys, metric ranges and health-score bounds.
 - `quality_expectation_gold_machine_uptime`: uptime, downtime and observed-minute checks.
-- `quality_expectation_downtime_forecast`: forecast interval, validation-count, threshold-evidence and status checks.
+- `quality_expectation_downtime_forecast`: forecast interval, validation-count, threshold-evidence, commit-time and status checks.
+- `quality_expectation_forecast_publication_manifest`: publication state, row-count, fingerprint and committed-evidence checks.
 
 The Lakeflow pipeline writes expectation metrics to `quality_expectation_event_log`, which gives a managed event stream for monitoring expectation pass and fail counts.
 
@@ -152,4 +170,4 @@ The bundle manages least-privilege access for the main Databricks resources:
 
 Saved Databricks SQL queries are published after bundle deployment so reporting assets appear under SQL Queries instead of only existing as repository files.
 
-Repository and local Spark tests prove deterministic immutable naming, manifest tamper detection, uploader command construction, ingestion lineage, calendar-window readiness logic and existing transformation contracts. They do not prove Files API behaviour, Databricks Runtime execution, workspace permissions or live Auto Loader discovery; those remain authenticated runtime evidence.
+Repository and local Spark tests prove deterministic immutable naming, manifest tamper detection, uploader command construction, ingestion lineage, calendar-window readiness logic, manifest-last selection and existing transformation contracts. They do not prove Files API behaviour, Databricks Runtime execution, Delta multi-table atomicity, workspace permissions or live Auto Loader discovery; those remain authenticated runtime evidence.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Unity Catalog grants that depend on runtime-created tables."""
+"""Apply Unity Catalog grants that depend on runtime-created relations."""
 
 from __future__ import annotations
 
@@ -19,8 +19,6 @@ REPORTING_TABLES = (
     "gold_maintenance_costs",
     "gold_parts_usage",
     "gold_client_asset_summary",
-    "gold_downtime_forecast_validation",
-    "gold_downtime_forecast",
     "dim_client",
     "dim_date",
     "dim_fault",
@@ -31,9 +29,18 @@ REPORTING_TABLES = (
     "fact_machine_uptime_daily",
     "quality_check_results",
     "quality_metric_history",
+)
+
+REPORTING_VIEWS = (
+    "gold_downtime_forecast_validation",
+    "gold_downtime_forecast",
+)
+
+REPORTING_MATERIALIZED_VIEWS = (
     "quality_expectation_silver_machine_events",
     "quality_expectation_gold_machine_uptime",
     "quality_expectation_downtime_forecast",
+    "quality_expectation_forecast_publication_manifest",
 )
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 60.0
@@ -143,8 +150,6 @@ def _cancel_statement(
             timeout_seconds=command_timeout_seconds,
         )
     except (RuntimeError, TimeoutError):
-        # The original timeout remains the authoritative failure. A failed cancel
-        # attempt must not hide it or create an unbounded retry loop.
         return
 
 
@@ -240,6 +245,21 @@ def execute_statement(
         )
 
 
+def _select_grants(
+    *,
+    catalog: str,
+    schema: str,
+    analyst: str,
+    object_type: str,
+    object_names: tuple[str, ...],
+) -> list[str]:
+    return [
+        f"GRANT SELECT ON {object_type} "
+        f"{sql_identifier(catalog, schema, object_name)} TO {analyst}"
+        for object_name in object_names
+    ]
+
+
 def build_grants(args: argparse.Namespace) -> list[str]:
     catalog = sql_identifier(args.catalog)
     schema = sql_identifier(args.catalog, args.schema)
@@ -266,8 +286,31 @@ def build_grants(args: argparse.Namespace) -> list[str]:
 
     if args.include_table_grants:
         statements.extend(
-            f"GRANT SELECT ON TABLE {sql_identifier(args.catalog, args.schema, table_name)} TO {analyst}"
-            for table_name in REPORTING_TABLES
+            _select_grants(
+                catalog=args.catalog,
+                schema=args.schema,
+                analyst=analyst,
+                object_type="TABLE",
+                object_names=REPORTING_TABLES,
+            )
+        )
+        statements.extend(
+            _select_grants(
+                catalog=args.catalog,
+                schema=args.schema,
+                analyst=analyst,
+                object_type="VIEW",
+                object_names=REPORTING_VIEWS,
+            )
+        )
+        statements.extend(
+            _select_grants(
+                catalog=args.catalog,
+                schema=args.schema,
+                analyst=analyst,
+                object_type="MATERIALIZED VIEW",
+                object_names=REPORTING_MATERIALIZED_VIEWS,
+            )
         )
 
     return statements

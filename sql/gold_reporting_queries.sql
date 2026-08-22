@@ -66,10 +66,11 @@ SELECT
 FROM main.lakehouse_demo.gold_client_asset_summary
 ORDER BY client_id, site_id, failure_related_cost_gbp DESC;
 
--- Downtime forecast with explicit client-readiness evidence
+-- Latest committed downtime forecast with explicit client-readiness evidence
 SELECT
   forecast_run_id,
   forecast_generated_at,
+  publication_completed_at_utc,
   forecast_date,
   latest_actual_date,
   site_id,
@@ -103,10 +104,11 @@ ORDER BY
   END,
   forecast_downtime_minutes DESC;
 
--- Downtime forecast backtest performance for the current published run
+-- Downtime forecast backtest performance for the latest committed publication
 SELECT
   forecast_run_id,
   validation_generated_at,
+  publication_completed_at_utc,
   site_id,
   client_id,
   model,
@@ -125,12 +127,33 @@ FROM main.lakehouse_demo.gold_downtime_forecast_validation
 GROUP BY
   forecast_run_id,
   validation_generated_at,
+  publication_completed_at_utc,
   site_id,
   client_id,
   model,
   window_semantics,
   baseline_window_days
 ORDER BY mae_downtime_minutes DESC, site_id, model;
+
+-- Recent forecast publication runs and their bounded reconciliation evidence
+SELECT
+  forecast_run_id,
+  publication_state,
+  publication_started_at_utc,
+  publication_completed_at_utc,
+  forecast_generated_at_utc,
+  model_name,
+  window_semantics,
+  baseline_window_days,
+  forecast_row_count,
+  validation_row_count,
+  forecast_schema_sha256,
+  validation_schema_sha256,
+  forecast_payload_sha256,
+  validation_payload_sha256
+FROM main.lakehouse_demo.gold_downtime_forecast_publication_manifest
+ORDER BY publication_started_at_utc DESC, forecast_run_id DESC
+LIMIT 30;
 
 -- Latest failed quality checks plus the durable run-level outcome
 WITH latest_quality_run AS (
@@ -208,4 +231,9 @@ SELECT
   'quality_expectation_downtime_forecast' AS expectation_dataset,
   COUNT(*) AS row_count
 FROM main.lakehouse_demo.quality_expectation_downtime_forecast
+UNION ALL
+SELECT
+  'quality_expectation_forecast_publication_manifest' AS expectation_dataset,
+  COUNT(*) AS row_count
+FROM main.lakehouse_demo.quality_expectation_forecast_publication_manifest
 ORDER BY expectation_dataset;

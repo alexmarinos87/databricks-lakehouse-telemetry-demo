@@ -145,6 +145,42 @@ class ApplyUnityCatalogGrantsTest(unittest.TestCase):
         self.assertNotIn("sensitive_table", message)
         self.assertNotIn("sensitive-provider-output", message)
 
+    def test_relation_specific_select_grants_preserve_forecast_boundaries(self):
+        args = argparse.Namespace(
+            catalog="main",
+            schema="lakehouse_demo_dev",
+            volume="lakehouse_demo_dev_files",
+            admin_group="admins",
+            engineer_group="engineers",
+            analyst_group="analysts",
+            service_principal="ci",
+            include_table_grants=True,
+        )
+
+        statements = apply_uc_grants.build_grants(args)
+        joined = "\n".join(statements)
+
+        self.assertIn(
+            "GRANT SELECT ON VIEW `main`.`lakehouse_demo_dev`.`gold_downtime_forecast`",
+            joined,
+        )
+        self.assertIn(
+            "GRANT SELECT ON VIEW `main`.`lakehouse_demo_dev`.`gold_downtime_forecast_validation`",
+            joined,
+        )
+        self.assertIn(
+            "GRANT SELECT ON MATERIALIZED VIEW `main`.`lakehouse_demo_dev`.`quality_expectation_downtime_forecast`",
+            joined,
+        )
+        self.assertIn(
+            "GRANT SELECT ON MATERIALIZED VIEW `main`.`lakehouse_demo_dev`.`quality_expectation_forecast_publication_manifest`",
+            joined,
+        )
+        self.assertNotIn("ON TABLE `main`.`lakehouse_demo_dev`.`gold_downtime_forecast`", joined)
+        self.assertNotIn("gold_downtime_forecast_history", joined)
+        self.assertNotIn("gold_downtime_forecast_validation_history", joined)
+        self.assertNotIn("gold_downtime_forecast_publication_manifest", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

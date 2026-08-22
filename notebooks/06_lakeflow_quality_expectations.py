@@ -107,6 +107,10 @@ def quality_expectation_gold_machine_uptime():
             "AND length(trim(cast(forecast_run_id AS STRING))) > 0"
         ),
         "forecast_date_present": "forecast_date IS NOT NULL",
+        "publication_committed": (
+            "publication_completed_at_utc IS NOT NULL "
+            "AND length(publication_completed_at_utc) = 20"
+        ),
         "segment_keys_present": (
             "site_id IS NOT NULL AND client_id IS NOT NULL AND model IS NOT NULL "
             "AND length(trim(cast(site_id AS STRING))) > 0 "
@@ -171,6 +175,7 @@ def quality_expectation_downtime_forecast():
     return source_table("gold_downtime_forecast").select(
         "forecast_run_id",
         "forecast_generated_at",
+        "publication_completed_at_utc",
         "forecast_date",
         "latest_actual_date",
         "site_id",
@@ -192,4 +197,62 @@ def quality_expectation_downtime_forecast():
         "meets_mae_threshold",
         "meets_interval_coverage_threshold",
         "forecast_status",
+    )
+
+
+# COMMAND ----------
+
+@dp.materialized_view(
+    name="quality_expectation_forecast_publication_manifest",
+    comment="Forecast publication runs with commit-boundary evidence.",
+)
+@dp.expect_all(
+    {
+        "forecast_run_id_present": (
+            "forecast_run_id IS NOT NULL "
+            "AND length(trim(cast(forecast_run_id AS STRING))) > 0"
+        ),
+        "publication_state_known": (
+            "publication_state IN ('STARTED', 'COMMITTED', 'FAILED')"
+        ),
+        "publication_started_at_present": (
+            "publication_started_at_utc IS NOT NULL "
+            "AND length(publication_started_at_utc) = 20"
+        ),
+        "row_counts_non_negative": (
+            "forecast_row_count >= 0 AND validation_row_count >= 0"
+        ),
+        "fingerprints_sha256_shaped": (
+            "length(forecast_schema_sha256) = 64 "
+            "AND length(validation_schema_sha256) = 64 "
+            "AND length(forecast_payload_sha256) = 64 "
+            "AND length(validation_payload_sha256) = 64"
+        ),
+        "committed_evidence_complete": (
+            "publication_state <> 'COMMITTED' "
+            "OR (publication_completed_at_utc IS NOT NULL "
+            "AND length(publication_completed_at_utc) = 20 "
+            "AND forecast_columns_json IS NOT NULL "
+            "AND validation_columns_json IS NOT NULL)"
+        ),
+    }
+)
+def quality_expectation_forecast_publication_manifest():
+    return source_table("gold_downtime_forecast_publication_manifest").select(
+        "forecast_run_id",
+        "publication_state",
+        "publication_started_at_utc",
+        "publication_completed_at_utc",
+        "forecast_generated_at_utc",
+        "model_name",
+        "window_semantics",
+        "baseline_window_days",
+        "forecast_row_count",
+        "validation_row_count",
+        "forecast_columns_json",
+        "validation_columns_json",
+        "forecast_schema_sha256",
+        "validation_schema_sha256",
+        "forecast_payload_sha256",
+        "validation_payload_sha256",
     )
