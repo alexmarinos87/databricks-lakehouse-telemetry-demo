@@ -31,7 +31,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
                 self.assertIn("_add_project_src_to_path()", notebook)
                 self.assertIn('Path(workspace_root_text) / "src"', notebook)
 
-    def test_silver_calls_shared_transform_and_reconciles_before_writes(self):
+    def test_silver_calls_shared_transform_and_commits_manifest_last(self):
         notebook = SILVER.read_text(encoding="utf-8")
 
         self.assertIn("build_silver_frames", notebook)
@@ -39,8 +39,11 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertIn("silver_frames = build_silver_frames(bronze)", notebook)
         self.assertIn('silver_frames["silver"]', notebook)
         self.assertIn('silver_frames["quarantine"]', notebook)
-        self.assertIn("silver_machine_events", notebook)
-        self.assertIn("silver_quarantine_machine_events", notebook)
+        self.assertIn("silver_machine_events_history", notebook)
+        self.assertIn("silver_quarantine_machine_events_history", notebook)
+        self.assertIn("silver_publication_manifest", notebook)
+        self.assertIn("build_family_manifest", notebook)
+        self.assertIn("audit_family_publication", notebook)
         self.assertIn("reconciliation.has_conflicts", notebook)
         self.assertIn(
             "Silver publication blocked because conflicting payloads share",
@@ -48,13 +51,27 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         )
 
         reconciliation_position = notebook.index("reconcile_silver(")
-        quarantine_write_position = notebook.index("quarantine.write.format")
-        conflict_gate_position = notebook.index("if reconciliation.has_conflicts:")
-        silver_write_position = notebook.index("silver.write.format")
+        quarantine_write_position = notebook.index(
+            'failure_stage = "write_quarantine_history"'
+        )
+        silver_write_position = notebook.index(
+            'failure_stage = "write_silver_history"'
+        )
+        persisted_audit_position = notebook.index(
+            "persisted_findings = audit_family_publication("
+        )
+        conflict_gate_position = notebook.index(
+            'failure_stage = "conflicting_event_ids"'
+        )
+        commit_position = notebook.index('failure_stage = "commit_manifest"')
 
         self.assertLess(reconciliation_position, quarantine_write_position)
-        self.assertLess(quarantine_write_position, conflict_gate_position)
-        self.assertLess(conflict_gate_position, silver_write_position)
+        self.assertLess(quarantine_write_position, silver_write_position)
+        self.assertLess(silver_write_position, persisted_audit_position)
+        self.assertLess(persisted_audit_position, conflict_gate_position)
+        self.assertLess(conflict_gate_position, commit_position)
+        self.assertNotIn('.mode("overwrite")', notebook)
+        self.assertNotIn("CREATE OR REPLACE VIEW", notebook)
         self.assertNotIn("Window.partitionBy", notebook)
         self.assertNotIn("F.to_timestamp", notebook)
 
