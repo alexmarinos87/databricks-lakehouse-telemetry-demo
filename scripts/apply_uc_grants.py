@@ -14,14 +14,6 @@ from typing import Any
 
 
 REPORTING_TABLES = (
-    "dim_client",
-    "dim_date",
-    "dim_fault",
-    "dim_machine",
-    "dim_model",
-    "dim_site",
-    "fact_machine_failure_event",
-    "fact_machine_uptime_daily",
     "quality_check_results",
     "quality_metric_history",
 )
@@ -32,6 +24,14 @@ REPORTING_VIEWS = (
     "gold_maintenance_costs",
     "gold_parts_usage",
     "gold_client_asset_summary",
+    "dim_client",
+    "dim_date",
+    "dim_fault",
+    "dim_machine",
+    "dim_model",
+    "dim_site",
+    "fact_machine_failure_event",
+    "fact_machine_uptime_daily",
     "gold_downtime_forecast_validation",
     "gold_downtime_forecast",
 )

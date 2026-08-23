@@ -94,6 +94,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              warehouse_publication_run_id: "job_{{job.run_id}}"
 
         - task_key: forecast_validation
           depends_on:
