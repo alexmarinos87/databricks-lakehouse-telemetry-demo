@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from pyspark.sql import SparkSession
+from pyspark.sql.types import DoubleType, StructField, StructType
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,18 @@ from lakehouse_demo.spark_downtime_semantics import (  # noqa: E402
     SEMANTIC_VERSION,
     audit_downtime_semantics,
     with_downtime_semantics,
+)
+
+
+DOWNTIME_FRAME_SCHEMA = StructType(
+    [
+        StructField("running_minutes", DoubleType(), True),
+        StructField("idle_minutes", DoubleType(), True),
+        StructField("maintenance_minutes", DoubleType(), True),
+        StructField("observed_minutes", DoubleType(), True),
+        StructField("downtime_minutes", DoubleType(), True),
+        StructField("downtime_pct", DoubleType(), True),
+    ]
 )
 
 
@@ -46,7 +59,7 @@ class SparkDowntimeSemanticsRuntimeTest(unittest.TestCase):
             "downtime_pct": 25.0,
         }
         row.update(overrides)
-        return self.spark.createDataFrame([row])
+        return self.spark.createDataFrame([row], schema=DOWNTIME_FRAME_SCHEMA)
 
     def test_downtime_above_observed_and_load_above_100_are_valid(self) -> None:
         frame = self.frame(downtime_minutes=120.0, downtime_pct=200.0)
