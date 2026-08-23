@@ -4,6 +4,8 @@ resources:
       name: ${bundle.target}-lakehouse-quality-expectations
       catalog: ${var.catalog}
       schema: ${var.schema}
+      run_as:
+        service_principal_name: ${var.runtime_service_principal_name}
       permissions:
         - group_name: ${var.admin_group_name}
           level: CAN_MANAGE
@@ -13,6 +15,8 @@ resources:
           level: CAN_VIEW
         - service_principal_name: ${var.ci_service_principal_name}
           level: CAN_MANAGE
+        - service_principal_name: ${var.runtime_service_principal_name}
+          level: CAN_RUN
       continuous: false
       channel: CURRENT
       edition: ADVANCED
