@@ -41,6 +41,30 @@ The complete residual-risk statements, current evidence paths, external dependen
 | R-016 | High | Source mitigated | Externally blocked | Operational alerts and retention are defined but inactive |
 | R-017 | Medium | Source mitigated | Runtime evidence pending | Runtime compatibility baseline needs Databricks execution proof |
 
+## Representative source evidence
+
+The JSON register contains the complete evidence set. This index keeps one current, resolvable repository link visible for each risk.
+
+| Risk | Representative evidence |
+| --- | --- |
+| R-001 | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) |
+| R-002 | [`databricks.yml`](../databricks.yml) |
+| R-003 | [`resources/lakehouse_quality_expectations.yml`](../resources/lakehouse_quality_expectations.yml) |
+| R-004 | [`Dockerfile.spark-ci`](../Dockerfile.spark-ci) |
+| R-005 | [`governance/warehouse_assignment_policy.json`](../governance/warehouse_assignment_policy.json) |
+| R-006 | [`governance/downtime_semantics.json`](../governance/downtime_semantics.json) |
+| R-007 | [`scripts/bootstrap_github_governance.py`](../scripts/bootstrap_github_governance.py) |
+| R-008 | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) |
+| R-009 | [`src/lakehouse_demo/spark_family_publication.py`](../src/lakehouse_demo/spark_family_publication.py) |
+| R-010 | [`src/lakehouse_demo/ingestion_identity.py`](../src/lakehouse_demo/ingestion_identity.py) |
+| R-011 | [`scripts/upsert_reporting_queries.py`](../scripts/upsert_reporting_queries.py) |
+| R-012 | [`databricks.yml`](../databricks.yml) |
+| R-013 | [`src/lakehouse_demo/spark_quality.py`](../src/lakehouse_demo/spark_quality.py) |
+| R-014 | [`src/lakehouse_demo/spark_forecast.py`](../src/lakehouse_demo/spark_forecast.py) |
+| R-015 | [`governance/runtime_identity_policy.json`](../governance/runtime_identity_policy.json) |
+| R-016 | [`governance/operational_alert_policy.json`](../governance/operational_alert_policy.json) |
+| R-017 | [`governance/runtime_compatibility.json`](../governance/runtime_compatibility.json) |
+
 ## External blockers
 
 - **R-001** — `issue:44`, `databricks:workload-identity-federation`.
