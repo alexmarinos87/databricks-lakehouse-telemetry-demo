@@ -34,71 +34,40 @@ class SparkQualityRuntimeTest(unittest.TestCase):
         )
         cls.spark.sparkContext.setLogLevel("ERROR")
 
-        cls.silver = cls.spark.createDataFrame(
-            [
-                {
-                    "event_id": "E1",
-                    "machine_id": "M1",
-                    "event_ts_utc": datetime(2026, 4, 1, 6),
-                    "site_id": "S1",
-                    "client_id": "C1",
-                    "duration_minutes": 60,
-                    "downtime_minutes": 0,
-                    "maintenance_cost_gbp": 0.0,
-                    "part_quantity": 0,
-                    "fuel_level_pct": 80.0,
-                },
-                {
-                    "event_id": "E2",
-                    "machine_id": "M1",
-                    "event_ts_utc": datetime(2026, 4, 1, 7),
-                    "site_id": "S1",
-                    "client_id": "C1",
-                    "duration_minutes": 30,
-                    "downtime_minutes": 10,
-                    "maintenance_cost_gbp": 20.0,
-                    "part_quantity": 1,
-                    "fuel_level_pct": 70.0,
-                },
-            ]
-        ).cache()
-        cls.uptime = cls.spark.createDataFrame(
-            [
-                {
-                    "date_key": 20260401,
-                    "client_key": 1,
-                    "machine_key": 10,
-                    "model_key": 100,
-                    "site_key": 1000,
-                    "running_minutes": 60,
-                    "idle_minutes": 20,
-                    "maintenance_minutes": 10,
-                    "downtime_minutes": 10,
-                    "observed_minutes": 90,
-                    "uptime_pct": 66.67,
-                    "idle_pct": 22.22,
-                    "maintenance_pct": 11.11,
-                    "downtime_pct": 11.11,
-                }
-            ]
-        ).cache()
-        cls.failure = cls.spark.createDataFrame(
-            [
-                {
-                    "event_id": "E2",
-                    "date_key": 20260401,
-                    "client_key": 1,
-                    "machine_key": 10,
-                    "model_key": 100,
-                    "site_key": 1000,
-                    "fault_key": 10000,
-                    "failure_event_count": 1,
-                    "downtime_minutes": 10,
-                    "maintenance_cost_gbp": 20.0,
-                    "part_quantity": 1,
-                }
-            ]
-        ).cache()
+        cls.silver = cls.spark.createDataFrame([
+            {
+                "event_id": "E1", "machine_id": "M1",
+                "event_ts_utc": datetime(2026, 4, 1, 6),
+                "site_id": "S1", "client_id": "C1",
+                "duration_minutes": 60, "downtime_minutes": 0,
+                "maintenance_cost_gbp": 0.0, "part_quantity": 0,
+                "fuel_level_pct": 80.0,
+            },
+            {
+                "event_id": "E2", "machine_id": "M1",
+                "event_ts_utc": datetime(2026, 4, 1, 7),
+                "site_id": "S1", "client_id": "C1",
+                "duration_minutes": 30, "downtime_minutes": 10,
+                "maintenance_cost_gbp": 20.0, "part_quantity": 1,
+                "fuel_level_pct": 70.0,
+            },
+        ]).cache()
+        cls.uptime = cls.spark.createDataFrame([{
+            "date_key": 20260401, "client_key": 1, "machine_key": 10,
+            "model_key": 100, "site_key": 1000,
+            "running_minutes": 60, "idle_minutes": 20,
+            "maintenance_minutes": 10, "downtime_minutes": 10,
+            "observed_minutes": 90, "uptime_pct": 66.67,
+            "idle_pct": 22.22, "maintenance_pct": 11.11,
+            "downtime_impact_ratio_pct": 11.11,
+        }]).cache()
+        cls.failure = cls.spark.createDataFrame([{
+            "event_id": "E2", "date_key": 20260401, "client_key": 1,
+            "machine_key": 10, "model_key": 100, "site_key": 1000,
+            "fault_key": 10000, "failure_event_count": 1,
+            "downtime_minutes": 10, "maintenance_cost_gbp": 20.0,
+            "part_quantity": 1,
+        }]).cache()
         for dataframe in (cls.silver, cls.uptime, cls.failure):
             dataframe.count()
 
@@ -120,35 +89,20 @@ class SparkQualityRuntimeTest(unittest.TestCase):
     def test_clean_medallion_and_warehouse_checks_pass(self) -> None:
         results = self._evaluate()
         self.assertFalse(any(result.status == "fail" for result in results))
-        self.assertIn(
-            QualityCheckResult(
-                "uptime_fact_grain_unique",
-                "pass",
-                "error",
-                "Warehouse fact grain is unique",
-                0,
-            ),
-            results,
-        )
+        self.assertIn(QualityCheckResult(
+            "uptime_fact_grain_unique", "pass", "error",
+            "Warehouse fact grain is unique", 0,
+        ), results)
 
     def test_unavailable_table_is_recorded_without_provider_diagnostics(self) -> None:
         results = evaluate_quality_tables(
-            {},
-            unavailable_tables={"silver": "main.demo.silver"},
+            {}, unavailable_tables={"silver": "main.demo.silver"},
             expected_tables=("silver",),
         )
-        self.assertEqual(
-            (
-                QualityCheckResult(
-                    "silver_table_readable",
-                    "fail",
-                    "error",
-                    "Required table could not be read",
-                    1,
-                ),
-            ),
-            results,
-        )
+        self.assertEqual((QualityCheckResult(
+            "silver_table_readable", "fail", "error",
+            "Required table could not be read", 1,
+        ),), results)
         self.assertNotIn("main.demo.silver", results[0].detail)
 
     def test_duplicate_grain_and_null_dimension_key_are_detected(self) -> None:
@@ -158,44 +112,55 @@ class SparkQualityRuntimeTest(unittest.TestCase):
                 "fault_key", F.lit(None).cast("long")
             ),
         )
-        self.assertIn(
-            QualityCheckResult(
-                "uptime_fact_grain_unique",
-                "fail",
-                "error",
-                "Warehouse fact contains duplicate grain rows",
-                1,
-            ),
-            results,
-        )
-        self.assertIn(
-            QualityCheckResult(
-                "failure_fact_dimension_keys_present",
-                "fail",
-                "error",
-                "Warehouse fact contains null dimension keys",
-                1,
-            ),
-            results,
-        )
+        self.assertIn(QualityCheckResult(
+            "uptime_fact_grain_unique", "fail", "error",
+            "Warehouse fact contains duplicate grain rows", 1,
+        ), results)
+        self.assertIn(QualityCheckResult(
+            "failure_fact_dimension_keys_present", "fail", "error",
+            "Warehouse fact contains null dimension keys", 1,
+        ), results)
 
-    def test_unresolved_downtime_semantics_are_a_warning(self) -> None:
-        review_uptime = self.uptime.withColumn("downtime_minutes", F.lit(120)).withColumn(
-            "downtime_pct", F.lit(133.33)
+    def test_impact_ratio_above_one_hundred_is_valid_when_formula_matches(self) -> None:
+        impact = (
+            self.uptime.withColumn("downtime_minutes", F.lit(120))
+            .withColumn("downtime_impact_ratio_pct", F.lit(133.33))
         )
-        results = self._evaluate(fact_machine_uptime_daily=review_uptime)
-        warning = next(
-            result
+        results = self._evaluate(fact_machine_uptime_daily=impact)
+        check = next(
+            result for result in results
+            if result.check_name == "uptime_fact_downtime_impact_consistent"
+        )
+        self.assertEqual(("pass", "error", 0), (
+            check.status, check.severity, check.observed_count
+        ))
+        self.assertFalse(any(
+            result.status == "fail" and result.severity == "error"
             for result in results
-            if result.check_name == "uptime_fact_downtime_semantics_review"
+        ))
+
+    def test_inconsistent_impact_ratio_is_an_error(self) -> None:
+        impact = self.uptime.withColumn("downtime_impact_ratio_pct", F.lit(99.99))
+        results = self._evaluate(fact_machine_uptime_daily=impact)
+        self.assertIn(QualityCheckResult(
+            "uptime_fact_downtime_impact_consistent", "fail", "error",
+            "Downtime impact ratio violates the approved formula", 1,
+        ), results)
+
+    def test_zero_observed_minutes_requires_null_impact_ratio(self) -> None:
+        valid_zero = (
+            self.uptime.withColumn("observed_minutes", F.lit(0))
+            .withColumn("running_minutes", F.lit(0))
+            .withColumn("idle_minutes", F.lit(0))
+            .withColumn("maintenance_minutes", F.lit(0))
+            .withColumn("downtime_impact_ratio_pct", F.lit(None).cast("double"))
         )
-        self.assertEqual(
-            ("fail", "warning", 1),
-            (warning.status, warning.severity, warning.observed_count),
-        )
-        self.assertFalse(
-            any(result.status == "fail" and result.severity == "error" for result in results)
-        )
+        results = self._evaluate(fact_machine_uptime_daily=valid_zero)
+        self.assertFalse(any(
+            result.check_name == "uptime_fact_downtime_impact_consistent"
+            and result.status == "fail"
+            for result in results
+        ))
 
     def test_detailed_and_summary_frames_share_run_identity(self) -> None:
         detailed = quality_results_dataframe(
