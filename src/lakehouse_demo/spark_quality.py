@@ -10,6 +10,9 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
+from lakehouse_demo.downtime_semantics import invalid_downtime_impact_rows
+
+
 QUALITY_TABLE_NAMES = (
     "bronze",
     "silver",
@@ -68,7 +71,6 @@ def _safe(
     try:
         return operation()
     except Exception:
-        # Never persist provider diagnostics or candidate row values.
         return QualityCheckResult(
             check_name=name,
             status="fail",
@@ -100,10 +102,9 @@ def _null_rows(dataframe: DataFrame, columns: Sequence[str]) -> int:
 
 
 def _silver_event_id_unique(silver: DataFrame) -> QualityCheckResult:
-    missing = _missing_columns(silver, ("event_id",))
-    if missing:
+    if _missing_columns(silver, ("event_id",)):
         return QualityCheckResult(
-            "silver_event_id_unique", "fail", "error", "Silver is missing event_id", len(missing)
+            "silver_event_id_unique", "fail", "error", "Silver is missing event_id", 1
         )
     return _outcome(
         "silver_event_id_unique",
@@ -217,8 +218,8 @@ def _uptime_percentage_bounds(uptime: DataFrame) -> QualityCheckResult:
     return _outcome(
         "uptime_fact_percentage_bounds",
         uptime.where(predicate).count(),
-        pass_detail="Defined uptime percentages are within zero and one hundred",
-        fail_detail="Defined uptime percentages fall outside zero and one hundred",
+        pass_detail="Status percentages are within zero and one hundred",
+        fail_detail="Status percentages fall outside zero and one hundred",
     )
 
 
@@ -247,27 +248,12 @@ def _uptime_status_minutes(uptime: DataFrame) -> QualityCheckResult:
     )
 
 
-def _downtime_semantics_review(uptime: DataFrame) -> QualityCheckResult:
-    columns = ("downtime_minutes", "observed_minutes", "downtime_pct")
-    missing = _missing_columns(uptime, columns)
-    if missing:
-        return QualityCheckResult(
-            "uptime_fact_downtime_semantics_review",
-            "fail",
-            "warning",
-            "Uptime fact is missing downtime review columns",
-            len(missing),
-        )
-    review_count = uptime.where(
-        (F.col("downtime_minutes") > F.col("observed_minutes"))
-        | (F.col("downtime_pct") > 100)
-    ).count()
+def _downtime_impact_consistency(uptime: DataFrame) -> QualityCheckResult:
     return _outcome(
-        "uptime_fact_downtime_semantics_review",
-        review_count,
-        pass_detail="No uptime rows require downtime-semantics review",
-        fail_detail="Uptime rows require an approved downtime business definition",
-        severity="warning",
+        "uptime_fact_downtime_impact_consistent",
+        invalid_downtime_impact_rows(uptime).count(),
+        pass_detail="Downtime impact ratio matches the approved uncapped formula",
+        fail_detail="Downtime impact ratio violates the approved formula",
     )
 
 
@@ -312,132 +298,80 @@ def evaluate_quality_tables(
 
     for name in expected_tables:
         if name in unavailable or name not in table_frames:
-            results.append(
-                QualityCheckResult(
-                    f"{name}_table_readable",
-                    "fail",
-                    "error",
-                    "Required table could not be read",
-                    1,
-                )
-            )
+            results.append(QualityCheckResult(
+                f"{name}_table_readable", "fail", "error",
+                "Required table could not be read", 1,
+            ))
             continue
         try:
             count = int(table_frames[name].count())
         except Exception:
-            results.append(
-                QualityCheckResult(
-                    f"{name}_table_readable",
-                    "fail",
-                    "error",
-                    "Required table could not be read",
-                    1,
-                )
-            )
+            results.append(QualityCheckResult(
+                f"{name}_table_readable", "fail", "error",
+                "Required table could not be read", 1,
+            ))
             continue
         readable[name] = table_frames[name]
         row_counts[name] = count
-        results.append(
-            QualityCheckResult(
-                f"{name}_table_readable", "pass", "error", "Table is readable", count
-            )
-        )
+        results.append(QualityCheckResult(
+            f"{name}_table_readable", "pass", "error", "Table is readable", count
+        ))
 
     for name in NON_EMPTY_TABLE_NAMES:
         if name in expected_tables and name in row_counts:
-            empty_count = 1 if row_counts[name] == 0 else 0
-            results.append(
-                _outcome(
-                    f"{name}_table_populated",
-                    empty_count,
-                    pass_detail="Required table contains rows",
-                    fail_detail="Required table is empty",
-                )
-            )
+            results.append(_outcome(
+                f"{name}_table_populated",
+                1 if row_counts[name] == 0 else 0,
+                pass_detail="Required table contains rows",
+                fail_detail="Required table is empty",
+            ))
 
     if "silver" in readable:
         silver = readable["silver"]
-        results.extend(
-            (
-                _safe("silver_event_id_unique", lambda: _silver_event_id_unique(silver)),
-                _safe("silver_required_fields_present", lambda: _silver_required_fields(silver)),
-                _safe(
-                    "silver_operational_metrics_in_bounds",
-                    lambda: _silver_metric_bounds(silver),
-                ),
-            )
-        )
+        results.extend((
+            _safe("silver_event_id_unique", lambda: _silver_event_id_unique(silver)),
+            _safe("silver_required_fields_present", lambda: _silver_required_fields(silver)),
+            _safe("silver_operational_metrics_in_bounds", lambda: _silver_metric_bounds(silver)),
+        ))
 
     if "fact_machine_uptime_daily" in readable:
         uptime = readable["fact_machine_uptime_daily"]
-        results.extend(
-            (
-                _safe(
-                    "uptime_fact_grain_unique",
-                    lambda: _grain_check(
-                        uptime, name="uptime_fact_grain_unique", grain=("date_key", "machine_key")
-                    ),
-                ),
-                _safe(
-                    "uptime_fact_dimension_keys_present",
-                    lambda: _dimension_key_check(
-                        uptime,
-                        name="uptime_fact_dimension_keys_present",
-                        keys=UPTIME_DIMENSION_KEYS,
-                    ),
-                ),
-                _safe("uptime_fact_percentage_bounds", lambda: _uptime_percentage_bounds(uptime)),
-                _safe(
-                    "uptime_fact_status_minutes_within_observed",
-                    lambda: _uptime_status_minutes(uptime),
-                ),
-                _safe(
-                    "uptime_fact_downtime_semantics_review",
-                    lambda: _downtime_semantics_review(uptime),
-                    severity="warning",
-                ),
-            )
-        )
+        results.extend((
+            _safe("uptime_fact_grain_unique", lambda: _grain_check(
+                uptime, name="uptime_fact_grain_unique", grain=("date_key", "machine_key")
+            )),
+            _safe("uptime_fact_dimension_keys_present", lambda: _dimension_key_check(
+                uptime, name="uptime_fact_dimension_keys_present", keys=UPTIME_DIMENSION_KEYS
+            )),
+            _safe("uptime_fact_percentage_bounds", lambda: _uptime_percentage_bounds(uptime)),
+            _safe("uptime_fact_status_minutes_within_observed", lambda: _uptime_status_minutes(uptime)),
+            _safe("uptime_fact_downtime_impact_consistent", lambda: _downtime_impact_consistency(uptime)),
+        ))
 
     if "fact_machine_failure_event" in readable:
         failure = readable["fact_machine_failure_event"]
-        results.extend(
-            (
-                _safe(
-                    "failure_fact_grain_unique",
-                    lambda: _grain_check(
-                        failure, name="failure_fact_grain_unique", grain=("event_id",)
-                    ),
-                ),
-                _safe(
-                    "failure_fact_dimension_keys_present",
-                    lambda: _dimension_key_check(
-                        failure,
-                        name="failure_fact_dimension_keys_present",
-                        keys=FAILURE_DIMENSION_KEYS,
-                    ),
-                ),
-                _safe(
-                    "failure_fact_measures_in_bounds",
-                    lambda: _failure_measure_bounds(failure),
-                ),
-            )
-        )
+        results.extend((
+            _safe("failure_fact_grain_unique", lambda: _grain_check(
+                failure, name="failure_fact_grain_unique", grain=("event_id",)
+            )),
+            _safe("failure_fact_dimension_keys_present", lambda: _dimension_key_check(
+                failure, name="failure_fact_dimension_keys_present", keys=FAILURE_DIMENSION_KEYS
+            )),
+            _safe("failure_fact_measures_in_bounds", lambda: _failure_measure_bounds(failure)),
+        ))
 
     return tuple(sorted(results))
 
 
-QUALITY_RESULT_SCHEMA = StructType(
-    [
-        StructField("quality_run_id", StringType(), False),
-        StructField("checked_at", TimestampType(), False),
-        StructField("check_name", StringType(), False),
-        StructField("status", StringType(), False),
-        StructField("severity", StringType(), False),
-        StructField("detail", StringType(), False),
-        StructField("observed_count", LongType(), False),
-    ]
-)
+QUALITY_RESULT_SCHEMA = StructType([
+    StructField("quality_run_id", StringType(), False),
+    StructField("checked_at", TimestampType(), False),
+    StructField("check_name", StringType(), False),
+    StructField("status", StringType(), False),
+    StructField("severity", StringType(), False),
+    StructField("detail", StringType(), False),
+    StructField("observed_count", LongType(), False),
+])
 
 
 def quality_results_dataframe(
@@ -451,21 +385,13 @@ def quality_results_dataframe(
         raise ValueError("quality_run_id must be populated")
     if not results:
         raise ValueError("at least one quality result is required")
-    return spark.createDataFrame(
-        [
-            (
-                quality_run_id,
-                checked_at,
-                result.check_name,
-                result.status,
-                result.severity,
-                result.detail,
-                int(result.observed_count),
-            )
-            for result in results
-        ],
-        schema=QUALITY_RESULT_SCHEMA,
-    )
+    return spark.createDataFrame([
+        (
+            quality_run_id, checked_at, result.check_name, result.status,
+            result.severity, result.detail, int(result.observed_count),
+        )
+        for result in results
+    ], schema=QUALITY_RESULT_SCHEMA)
 
 
 def summarize_quality_results(results: DataFrame) -> DataFrame:
@@ -477,32 +403,19 @@ def summarize_quality_results(results: DataFrame) -> DataFrame:
         results.groupBy("quality_run_id", "checked_at")
         .agg(
             F.count(F.lit(1)).alias("check_count"),
-            F.sum(F.when(F.col("status") == "pass", 1).otherwise(0)).alias(
-                "passed_check_count"
-            ),
-            F.sum(F.when(F.col("status") == "fail", 1).otherwise(0)).alias(
-                "failed_check_count"
-            ),
-            F.sum(
-                F.when(
-                    (F.col("status") == "fail") & (F.col("severity") == "error"), 1
-                ).otherwise(0)
-            ).alias("failed_error_check_count"),
-            F.sum(
-                F.when(
-                    (F.col("status") == "fail") & (F.col("severity") != "error"), 1
-                ).otherwise(0)
-            ).alias("failed_warning_check_count"),
+            F.sum(F.when(F.col("status") == "pass", 1).otherwise(0)).alias("passed_check_count"),
+            F.sum(F.when(F.col("status") == "fail", 1).otherwise(0)).alias("failed_check_count"),
+            F.sum(F.when(
+                (F.col("status") == "fail") & (F.col("severity") == "error"), 1
+            ).otherwise(0)).alias("failed_error_check_count"),
+            F.sum(F.when(
+                (F.col("status") == "fail") & (F.col("severity") != "error"), 1
+            ).otherwise(0)).alias("failed_warning_check_count"),
         )
         .withColumn("all_error_checks_passed", F.col("failed_error_check_count") == 0)
         .select(
-            "quality_run_id",
-            "checked_at",
-            "check_count",
-            "passed_check_count",
-            "failed_check_count",
-            "failed_error_check_count",
-            "failed_warning_check_count",
-            "all_error_checks_passed",
+            "quality_run_id", "checked_at", "check_count", "passed_check_count",
+            "failed_check_count", "failed_error_check_count",
+            "failed_warning_check_count", "all_error_checks_passed",
         )
     )
