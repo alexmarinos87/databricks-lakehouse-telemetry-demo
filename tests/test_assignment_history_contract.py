@@ -49,16 +49,17 @@ class AssignmentHistoryContractTest(unittest.TestCase):
 
     def test_documentation_requires_rebuild_for_late_assignments(self):
         documentation = DOCUMENTATION.read_text(encoding="utf-8")
+        normalized_documentation = " ".join(documentation.lower().split())
 
         for phrase in (
-            "Trusted warehouse facts do not use a fabricated `Unknown`",
+            "trusted warehouse facts do not use a fabricated `unknown`",
             "same-day conflict",
-            "Uptime and failure evidence have equal authority",
-            "Rebuild the machine's complete history",
-            "Do not patch only the latest fact",
-            "Do not represent this repository-only contract as a completed live warehouse migration",
+            "uptime and failure evidence have equal authority",
+            "rebuild the machine's complete history",
+            "do not patch only the latest fact",
+            "do not represent this repository-only contract as a completed live warehouse migration",
         ):
-            self.assertIn(phrase, documentation)
+            self.assertIn(phrase, normalized_documentation)
 
     def test_policy_lists_publication_evidence_families(self):
         policy = json.loads(POLICY.read_text(encoding="utf-8"))
