@@ -77,7 +77,7 @@ class DeploymentContractTest(unittest.TestCase):
         self.assertIn("diff-prod:", workflow)
         self.assertIn("deploy-prod:", workflow)
         self.assertIn("environment: prod", workflow)
-        self.assertEqual(4, workflow.count("scripts/capture_databricks_plan.py"))
+        self.assertEqual(6, workflow.count("scripts/capture_databricks_plan.py"))
         self.assertEqual(2, workflow.count("--mode plan"))
         self.assertIn("databricks bundle deploy -t prod", workflow)
         self.assertNotIn("databricks bundle plan -t", workflow)

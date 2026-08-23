@@ -53,7 +53,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn("ingestion_mode:", workflow)
         self.assertIn("backfill_id:", workflow)
         self.assertEqual(
-            2,
+            6,
             workflow.count("if: github.event.inputs.upload_sample_data == 'true'"),
         )
         self.assertEqual(
@@ -70,21 +70,21 @@ class ManualDeploymentContractTest(unittest.TestCase):
 
         self.assertEqual(4, workflow.count("id-token: write"))
         self.assertEqual(4, workflow.count("DATABRICKS_AUTH_TYPE: github-oidc"))
-        self.assertEqual(4, workflow.count("DATABRICKS_CLIENT_ID:"))
+        self.assertEqual(8, workflow.count("DATABRICKS_CLIENT_ID:"))
         self.assertEqual(4, workflow.count("DATABRICKS_HOST:"))
         self.assertNotIn("DATABRICKS_CLIENT_SECRET", workflow)
         self.assertEqual(
-            4, workflow.count("python3 scripts/capture_databricks_plan.py")
+            6, workflow.count("python3 scripts/capture_databricks_plan.py")
         )
         self.assertEqual(2, workflow.count("--mode plan"))
-        self.assertEqual(2, workflow.count("--mode identity"))
+        self.assertEqual(4, workflow.count("--mode identity"))
 
     def test_plan_and_identity_evidence_are_retained_by_exact_commit(self):
         workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(4, workflow.count(UPLOAD_ARTIFACT_SHA))
-        self.assertEqual(4, workflow.count("retention-days: 14"))
-        self.assertEqual(4, workflow.count("if-no-files-found: error"))
+        self.assertEqual(6, workflow.count(UPLOAD_ARTIFACT_SHA))
+        self.assertEqual(6, workflow.count("retention-days: 14"))
+        self.assertEqual(6, workflow.count("if-no-files-found: error"))
         self.assertIn(
             "databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}",
             workflow,
