@@ -85,6 +85,24 @@ def render_register(register: Mapping[str, Any]) -> str:
             )
         )
 
+    lines.extend(
+        [
+            "",
+            "## Representative source evidence",
+            "",
+            "The JSON register contains the complete evidence set. This index keeps one "
+            "current, resolvable repository link visible for each risk.",
+            "",
+            "| Risk | Representative evidence |",
+            "| --- | --- |",
+        ]
+    )
+    for risk in risks:
+        evidence_path = risk["source_evidence"][0]
+        lines.append(
+            f"| {risk['id']} | [`{evidence_path}`](../{evidence_path}) |"
+        )
+
     blocked = [
         risk for risk in risks if risk["runtime_status"] == "externally_blocked"
     ]
