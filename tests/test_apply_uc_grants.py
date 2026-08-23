@@ -145,19 +145,23 @@ class ApplyUnityCatalogGrantsTest(unittest.TestCase):
         self.assertNotIn("sensitive_table", message)
         self.assertNotIn("sensitive-provider-output", message)
 
-    def test_relation_specific_select_grants_preserve_forecast_boundaries(self):
-        args = argparse.Namespace(
-            catalog="main",
-            schema="lakehouse_demo_dev",
-            volume="lakehouse_demo_dev_files",
-            admin_group="admins",
-            engineer_group="engineers",
-            analyst_group="analysts",
-            service_principal="ci",
-            include_table_grants=True,
-        )
+    def _args(self, **overrides):
+        values = {
+            "catalog": "main",
+            "schema": "lakehouse_demo_dev",
+            "volume": "lakehouse_demo_dev_files",
+            "admin_group": "admins",
+            "engineer_group": "engineers",
+            "analyst_group": "analysts",
+            "service_principal": "lakehouse-demo-ci",
+            "runtime_service_principal": "lakehouse-demo-runtime",
+            "include_table_grants": True,
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
 
-        statements = apply_uc_grants.build_grants(args)
+    def test_relation_specific_select_grants_preserve_forecast_boundaries(self):
+        statements = apply_uc_grants.build_grants(self._args())
         joined = "\n".join(statements)
 
         self.assertIn(
@@ -180,6 +184,22 @@ class ApplyUnityCatalogGrantsTest(unittest.TestCase):
         self.assertNotIn("gold_downtime_forecast_history", joined)
         self.assertNotIn("gold_downtime_forecast_validation_history", joined)
         self.assertNotIn("gold_downtime_forecast_publication_manifest", joined)
+
+    def test_runtime_identity_receives_catalog_schema_and_volume_access(self):
+        joined = "\n".join(apply_uc_grants.build_grants(self._args()))
+
+        for fragment in (
+            "GRANT USE CATALOG ON CATALOG `main` TO `lakehouse-demo-runtime`",
+            "GRANT USE SCHEMA ON SCHEMA `main`.`lakehouse_demo_dev` TO `lakehouse-demo-runtime`",
+            "GRANT READ VOLUME, WRITE VOLUME ON VOLUME `main`.`lakehouse_demo_dev`.`lakehouse_demo_dev_files` TO `lakehouse-demo-runtime`",
+        ):
+            self.assertIn(fragment, joined)
+
+    def test_deployment_and_runtime_principals_must_differ(self):
+        with self.assertRaisesRegex(ValueError, "must differ"):
+            apply_uc_grants.build_grants(
+                self._args(runtime_service_principal="lakehouse-demo-ci")
+            )
 
 
 if __name__ == "__main__":
