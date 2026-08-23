@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 03 - Gold models
 # MAGIC
-# MAGIC Build BI-ready aggregate Delta tables from cleaned Silver events using the same DataFrame functions executed in local Spark CI.
+# MAGIC Build BI-ready aggregate Delta tables from cleaned Silver events using the same governed DataFrame functions executed in local Spark CI.
 
 # COMMAND ----------
 
@@ -39,7 +39,9 @@ def _add_project_src_to_path():
 
 _add_project_src_to_path()
 
-from lakehouse_demo.spark_medallion import build_gold_frames  # noqa: E402
+from lakehouse_demo.downtime_pipeline import (  # noqa: E402
+    build_governed_gold_frames,
+)
 
 # COMMAND ----------
 
@@ -64,7 +66,7 @@ gold_tables = {
 # COMMAND ----------
 
 silver = spark.table(silver_table)
-gold_frames = build_gold_frames(silver)
+gold_frames = build_governed_gold_frames(silver)
 
 missing_outputs = sorted(set(gold_tables).difference(gold_frames))
 if missing_outputs:
