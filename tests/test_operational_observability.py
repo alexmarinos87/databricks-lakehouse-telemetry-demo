@@ -74,10 +74,14 @@ class OperationalObservabilityTest(unittest.TestCase):
 
     def test_runbook_preserves_sensitive_data_boundary(self):
         runbook = RUNBOOK.read_text(encoding="utf-8")
+        normalized_runbook = " ".join(runbook.lower().split())
 
         self.assertIn("Do not copy raw telemetry rows", runbook)
         self.assertIn("notification destination identifier", runbook)
-        self.assertIn("does not claim that a live notification channel", runbook)
+        self.assertIn(
+            "does not claim that a live notification channel",
+            normalized_runbook,
+        )
 
 
 if __name__ == "__main__":
