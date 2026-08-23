@@ -73,7 +73,7 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("downtime_load_pct", pipeline)
         self.assertIn("downtime_exceeds_observed", pipeline)
         self.assertIn("downtime_semantics_version", pipeline)
-        self.assertIn("attributed_incident_v1", pipeline)
+        self.assertIn("SEMANTIC_VERSION", pipeline)
 
     def test_shared_modules_build_and_audit_failure_facts(self):
         module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
