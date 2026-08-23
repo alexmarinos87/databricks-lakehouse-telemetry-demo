@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "semantic_version": "attributed_incident_v1",
+  "fields": {
+    "duration_minutes": "Observed telemetry interval represented by one source event.",
+    "observed_minutes": "Sum of source-event duration_minutes in the reporting grain.",
+    "running_minutes": "Observed interval minutes classified as running.",
+    "idle_minutes": "Observed interval minutes classified as idle.",
+    "maintenance_minutes": "Observed interval minutes classified as maintenance.",
+    "downtime_minutes": "Incident-attributed outage or repair minutes; independent of telemetry observation coverage.",
+    "downtime_pct": "Compatibility name for attributed downtime load: downtime_minutes divided by observed_minutes times 100.",
+    "downtime_load_pct": "Preferred name for attributed downtime load; it is not an availability share and may exceed 100."
+  },
+  "relationships": {
+    "observed_minutes_non_negative": true,
+    "attributed_downtime_non_negative": true,
+    "status_minutes_non_negative": true,
+    "status_minutes_must_not_exceed_observed": true,
+    "attributed_downtime_may_exceed_observed": true,
+    "downtime_load_may_exceed_100": true,
+    "zero_observed_zero_downtime_load": 0.0,
+    "zero_observed_positive_downtime_load": null,
+    "formula_tolerance_percentage_points": 0.01
+  },
+  "consumer_guidance": {
+    "availability_measure": "uptime_pct",
+    "downtime_workload_measure": "downtime_load_pct",
+    "legacy_alias": "downtime_pct",
+    "prohibited_interpretation": "Do not describe downtime_pct as a bounded share of observed telemetry time."
+  },
+  "decision_state": "repository_accepted_semantics_pending_external_business_signoff"
+}
