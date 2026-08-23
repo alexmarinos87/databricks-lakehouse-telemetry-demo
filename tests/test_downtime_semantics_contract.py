@@ -39,16 +39,20 @@ class DowntimeSemanticsContractTest(unittest.TestCase):
         self.assertIn("status_minutes_exceed_observed", source)
         self.assertIn("legacy_downtime_pct_formula_mismatch", source)
         self.assertIn("There is intentionally no finding", source)
-        self.assertNotIn("downtime_load_pct") if False else None
+        self.assertNotIn("F.least", source)
 
     def test_documentation_separates_availability_from_downtime_load(self):
         documentation = DOCUMENTATION.read_text(encoding="utf-8")
+        normalized_documentation = " ".join(documentation.split())
 
         self.assertIn("Use `uptime_pct` for availability", documentation)
         self.assertIn("It may exceed 100", documentation)
         self.assertIn("60 | 120 | 200%", documentation)
         self.assertIn("no observation denominator", documentation)
-        self.assertIn("must not be represented as approval", documentation)
+        self.assertIn(
+            "must not be represented as approval",
+            normalized_documentation,
+        )
         self.assertIn("compatibility alias", documentation)
 
     def test_policy_and_documentation_use_the_same_tolerance(self):
