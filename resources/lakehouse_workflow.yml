@@ -62,6 +62,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              silver_publication_run_id: "job_{{job.run_id}}"
 
         - task_key: gold_models
           depends_on:
