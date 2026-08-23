@@ -1,0 +1,624 @@
+{
+  "schema_version": 1,
+  "last_reviewed": "2026-08-23",
+  "source_baseline_sha": "c8997354fd502eae7dc4c7d03bba8e005853950f",
+  "owners": {
+    "repository_maintainer": {
+      "display_name": "Repository maintainer",
+      "responsibilities": [
+        "source controls",
+        "pull-request evidence",
+        "external dependency tracking"
+      ]
+    },
+    "data_engineering": {
+      "display_name": "Data engineering",
+      "responsibilities": [
+        "data correctness",
+        "publication recovery",
+        "runtime validation"
+      ]
+    },
+    "platform": {
+      "display_name": "Platform engineering",
+      "responsibilities": [
+        "workspace identity",
+        "permissions",
+        "GitHub and Databricks settings"
+      ]
+    }
+  },
+  "risks": [
+    {
+      "id": "R-001",
+      "title": "Databricks deployment authentication is not proven in the workspace",
+      "priority": "critical",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "The repository now uses GitHub OIDC, rejects static secrets, and performs an identity preflight, but environment values and federation policies have not produced a successful protected-main plan run.",
+      "source_evidence": [
+        {
+          "path": ".github/workflows/deploy.yml",
+          "control": "Manual plan-first jobs request short-lived GitHub OIDC tokens."
+        },
+        {
+          "path": "scripts/capture_databricks_plan.py",
+          "control": "Identity, validation, and plan commands are bounded and captured without static secrets."
+        },
+        {
+          "path": "scripts/bootstrap_databricks_oidc.py",
+          "control": "OIDC bootstrap is explicit and dry-run oriented."
+        }
+      ],
+      "pending_evidence": [
+        "Environment-scoped Databricks host and client identifiers are configured.",
+        "Federation policies accept the four declared GitHub environment subjects.",
+        "A protected-main plan-only run proves identity, bundle validation, and bundle plan."
+      ],
+      "next_action": "Complete issue #44, then run development with apply_changes=false and retain the exact-commit plan artifact.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-002",
+      "title": "Development resource names may differ from post-deploy lookups",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "Target presets and helper lookups now use deterministic target-qualified names, but the rendered workspace names have not been authenticated and inspected.",
+      "source_evidence": [
+        {
+          "path": "databricks.yml",
+          "control": "Development presets clear the automatic name prefix and isolate target defaults."
+        },
+        {
+          "path": "scripts/apply_uc_grants.py",
+          "control": "Grant lookup uses deterministic target-qualified warehouse names."
+        },
+        {
+          "path": "scripts/upsert_reporting_queries.py",
+          "control": "Saved-query publication fails closed on ambiguous resource names."
+        }
+      ],
+      "pending_evidence": [
+        "Authenticated dev and prod plans show the expected job, pipeline, warehouse, schema, and volume names.",
+        "Post-deploy helpers resolve exactly one intended resource in development."
+      ],
+      "next_action": "Inspect the authenticated development plan and compare every helper lookup with the rendered resource name.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-003",
+      "title": "Lakeflow expectations mode and edition require workspace validation",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "data_engineering",
+      "summary": "The pipeline source uses the expectations-capable edition and target-controlled development mode, but no development refresh has proved the effective configuration or expectation metrics.",
+      "source_evidence": [
+        {
+          "path": "resources/lakehouse_quality_expectations.yml",
+          "control": "The pipeline uses the advanced edition without a fixed production development flag."
+        },
+        {
+          "path": "databricks.yml",
+          "control": "Target presets control development and production pipeline modes."
+        },
+        {
+          "path": "notebooks/06_lakeflow_quality_expectations.py",
+          "control": "Declarative expectations are source controlled and covered by contracts."
+        }
+      ],
+      "pending_evidence": [
+        "A rendered plan confirms target-specific pipeline mode and edition.",
+        "A development pipeline update completes and emits expectation metrics."
+      ],
+      "next_action": "Run the expectations pipeline in development after authenticated plan approval and retain update and event-log evidence.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-004",
+      "title": "Local Spark evidence cannot prove Databricks runtime behaviour",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "not_applicable",
+      "owner": "repository_maintainer",
+      "summary": "The repository now separates source contracts from executable local Spark suites, but local Python, Java, and PySpark evidence remains different from deployed Databricks Runtime, Delta, Auto Loader, and Lakeflow behaviour.",
+      "source_evidence": [
+        {
+          "path": ".github/workflows/spark-runtime.yml",
+          "control": "Spark-affecting changes execute in a dedicated pinned runtime workflow."
+        },
+        {
+          "path": "Dockerfile.spark-ci",
+          "control": "Python and Java inputs are explicit and reproducible."
+        },
+        {
+          "path": "tests_runtime/test_spark_warehouse_runtime.py",
+          "control": "Warehouse construction and failure behaviour execute rather than relying only on source text."
+        },
+        {
+          "path": "tests_runtime/test_spark_forecast_runtime.py",
+          "control": "Forecast calendar and readiness scenarios execute in Spark."
+        }
+      ],
+      "pending_evidence": [
+        "The accepted bundle executes in a development Databricks Runtime matching the declared compatibility baseline.",
+        "Delta writes, Auto Loader discovery, Lakeflow expectations, and Unity Catalog views are verified separately from local Spark."
+      ],
+      "next_action": "Retain the local/runtime evidence boundary and add authenticated development execution before any production-readiness claim.",
+      "dependencies": []
+    },
+    {
+      "id": "R-005",
+      "title": "Effective-dated assignment policy is not yet the warehouse construction path",
+      "priority": "high",
+      "source_status": "partial",
+      "runtime_status": "pending",
+      "external_status": "not_applicable",
+      "owner": "data_engineering",
+      "summary": "A fail-closed effective-dated assignment contract and unknown-member policy exist, while the current warehouse builder still contains its earlier embedded assignment construction and has not migrated live facts to the new contract.",
+      "source_evidence": [
+        {
+          "path": "governance/warehouse_assignment_policy.json",
+          "control": "The repository prohibits fabricated Unknown members for mandatory identities."
+        },
+        {
+          "path": "src/lakehouse_demo/spark_assignment_history.py",
+          "control": "Effective ranges, same-day conflicts, unresolved events, and ambiguous matches have executable logic."
+        },
+        {
+          "path": "tests_runtime/test_spark_assignment_history_runtime.py",
+          "control": "Assignment construction and resolution edge cases execute in Spark."
+        },
+        {
+          "path": "src/lakehouse_demo/spark_warehouse.py",
+          "control": "The residual warehouse builder remains the publication implementation that must adopt the policy."
+        }
+      ],
+      "pending_evidence": [
+        "The warehouse notebook and builder use the effective-dated assignment contract directly.",
+        "Late-arriving assignment and reassignment recovery rebuild affected history without silent fact loss.",
+        "A development migration proves fact reconciliation and rollback."
+      ],
+      "next_action": "Wire assignment history into warehouse construction as a bounded source increment, then plan the live migration separately.",
+      "dependencies": []
+    },
+    {
+      "id": "R-006",
+      "title": "Attributed-downtime semantics are not yet integrated into accepted main outputs",
+      "priority": "high",
+      "source_status": "partial",
+      "runtime_status": "pending",
+      "external_status": "pending",
+      "owner": "data_engineering",
+      "summary": "The semantic policy permits attributed downtime above observation coverage, but accepted main does not yet materialize the preferred load, exceedance flag, and semantic version through Gold, warehouse, quality, and reporting.",
+      "source_evidence": [
+        {
+          "path": "governance/downtime_semantics.json",
+          "control": "The accepted repository policy distinguishes availability from attributed-downtime load."
+        },
+        {
+          "path": "src/lakehouse_demo/spark_downtime_semantics.py",
+          "control": "Formula and duration invariants execute without imposing an invalid 100 percent cap."
+        },
+        {
+          "path": "docs/downtime_semantics.md",
+          "control": "Consumer guidance and external sign-off boundaries are explicit."
+        }
+      ],
+      "pending_evidence": [
+        "The additive semantic fields are accepted and merged into the Gold and warehouse publication path.",
+        "Development Delta schema evolution, quality checks, Lakeflow expressions, and reporting labels are verified.",
+        "Any real domain owner approval is linked separately from repository acceptance."
+      ],
+      "next_action": "Review the exact governed-output integration candidate, then validate its additive schema in development before apply.",
+      "dependencies": [
+        "PR #75"
+      ]
+    },
+    {
+      "id": "R-007",
+      "title": "Main-branch protection is an unverified external setting",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "not_applicable",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "CI, PR templates, human acceptance rules, and a dry-run governance bootstrap exist in source, but the current branch endpoint has not proved that main requires those controls.",
+      "source_evidence": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "control": "The repository exposes a stable validation job suitable for a required check."
+        },
+        {
+          "path": "scripts/bootstrap_github_governance.py",
+          "control": "Branch and repository governance changes are explicit and inspectable."
+        },
+        {
+          "path": "AGENTS.md",
+          "control": "Automated agents are prohibited from treating their own evidence as merge authority."
+        }
+      ],
+      "pending_evidence": [
+        "GitHub reports main as protected by a PR-only rule or ruleset.",
+        "The current validation check and conversation resolution are required.",
+        "Force push and branch deletion are disabled and squash-only linear history is active."
+      ],
+      "next_action": "Restore repository settings through an authorised settings path and retain the branch or ruleset response.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-008",
+      "title": "Deployment operations and supply-chain inputs require runtime observation",
+      "priority": "medium",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "not_applicable",
+      "owner": "platform",
+      "summary": "Repository helpers now bound subprocesses and SQL polling, workflows use fixed runners and immutable action commits, and dependencies are monitored, but real provider timeout and cancellation behaviour has not been observed.",
+      "source_evidence": [
+        {
+          "path": "scripts/apply_uc_grants.py",
+          "control": "CLI calls, SQL polling, deadlines, and best-effort cancellation are bounded."
+        },
+        {
+          "path": "scripts/upsert_reporting_queries.py",
+          "control": "Query inventory, publication, pagination, and permissions are bounded and fail closed."
+        },
+        {
+          "path": ".github/workflows/deploy.yml",
+          "control": "Actions are immutable, jobs have deadlines, and apply remains manual."
+        },
+        {
+          "path": ".github/dependabot.yml",
+          "control": "Actions, Docker, and Python dependency updates are proposed deliberately."
+        }
+      ],
+      "pending_evidence": [
+        "A development plan and grant run demonstrate effective timeout and cancellation behaviour.",
+        "Provider failures remain sanitized and do not leave unattended operations running."
+      ],
+      "next_action": "Exercise bounded operations in an approved development run and retain provider-side terminal states.",
+      "dependencies": []
+    },
+    {
+      "id": "R-009",
+      "title": "Silver, Gold, and warehouse can expose mixed multi-table publications",
+      "priority": "high",
+      "source_status": "partial",
+      "runtime_status": "pending",
+      "external_status": "not_applicable",
+      "owner": "data_engineering",
+      "summary": "Forecast publication now uses run histories and a committed-manifest boundary, while Silver, Gold, and warehouse still overwrite related Delta tables sequentially and can expose mixed generations after interruption.",
+      "source_evidence": [
+        {
+          "path": "src/lakehouse_demo/spark_forecast_publication.py",
+          "control": "Forecast histories and latest-committed selection are executable and retry safe."
+        },
+        {
+          "path": "notebooks/05_forecast_validation.py",
+          "control": "Forecast writes commit the manifest after history reconciliation."
+        },
+        {
+          "path": "notebooks/02_silver_transform.py",
+          "control": "Silver still performs sequential table writes."
+        },
+        {
+          "path": "notebooks/03_gold_models.py",
+          "control": "Gold still overwrites a family of tables one by one."
+        },
+        {
+          "path": "notebooks/07_warehouse_model.py",
+          "control": "Warehouse still overwrites dimensions and facts sequentially."
+        }
+      ],
+      "pending_evidence": [
+        "Silver, Gold, and warehouse each gain run-level version or staging identities and a visibility boundary.",
+        "Retries and interruption after each write are covered by executable recovery scenarios.",
+        "Storage, retention, orphan cleanup, and rollback costs are documented."
+      ],
+      "next_action": "Implement versioned publication one output family at a time without claiming cross-table ACID.",
+      "dependencies": []
+    },
+    {
+      "id": "R-010",
+      "title": "Auto Loader replay semantics require live verification",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "blocked",
+      "owner": "data_engineering",
+      "summary": "Content-addressed incremental objects and explicit replay IDs now avoid overwriting checkpointed paths, but live Files API, volume, checkpoint, and Auto Loader discovery behaviour has not been exercised.",
+      "source_evidence": [
+        {
+          "path": "src/lakehouse_demo/ingestion_identity.py",
+          "control": "Upload plans bind source bytes to immutable destinations and checkpoint reuse."
+        },
+        {
+          "path": "scripts/upload_ingestion_plan.py",
+          "control": "Existing destinations are verified and no overwrite or removal command is issued."
+        },
+        {
+          "path": "notebooks/01_bronze_ingest.py",
+          "control": "Bronze rejects unmanaged names and keeps Auto Loader overwrites disabled."
+        },
+        {
+          "path": "tests_runtime/test_spark_ingestion_identity_runtime.py",
+          "control": "Incremental and backfill lineage identities execute in Spark."
+        }
+      ],
+      "pending_evidence": [
+        "An identical development upload is a verified remote no-op.",
+        "A new increment and an explicit backfill are each discovered once with the existing checkpoint.",
+        "Bronze and Silver reconcile replay and conflict outcomes."
+      ],
+      "next_action": "Run the immutable uploader and Auto Loader path in development after authenticated plan approval.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-011",
+      "title": "Owner-run editable saved queries may cross a privilege boundary",
+      "priority": "high",
+      "source_status": "partial",
+      "runtime_status": "pending",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "Saved-query publication is bounded and analysts receive run access, but engineers retain edit access to owner-executed assets and the effective owner-versus-editor trust model is not yet governed or tested.",
+      "source_evidence": [
+        {
+          "path": "scripts/upsert_reporting_queries.py",
+          "control": "Publication is bounded, paginated, deterministic, and fails closed on duplicate active names."
+        },
+        {
+          "path": "scripts/apply_uc_grants.py",
+          "control": "Table, view, and materialized-view grants are typed explicitly."
+        },
+        {
+          "path": "resources/sql_reporting.yml",
+          "control": "Warehouse permissions are source controlled."
+        }
+      ],
+      "pending_evidence": [
+        "A declared saved-query owner is separate from untrusted editors where required.",
+        "The edit, run, and manage matrix is reviewed against owner-run execution semantics.",
+        "Effective permissions and denied edit/elevation paths are tested in development."
+      ],
+      "next_action": "Define saved-query ownership and edit policy before enabling broad analyst or engineer access.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-012",
+      "title": "Development and production isolation requires rendered-plan proof",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "Target defaults now separate schema, volume, source, checkpoint, schema metadata, and pipeline mode, but no authenticated plan has proved that pre-existing or effective workspace state is isolated.",
+      "source_evidence": [
+        {
+          "path": "databricks.yml",
+          "control": "Development and production use disjoint writable defaults."
+        },
+        {
+          "path": ".github/workflows/deploy.yml",
+          "control": "Environment-specific values are selected inside protected jobs."
+        },
+        {
+          "path": "tests/test_target_isolation_contract.py",
+          "control": "Repository contracts reject convergent target namespaces."
+        }
+      ],
+      "pending_evidence": [
+        "Authenticated dev and prod plans contain disjoint writable paths and resources.",
+        "Any pre-existing shared state is migrated, archived, or explicitly abandoned.",
+        "Development cannot read, write, or checkpoint production data."
+      ],
+      "next_action": "Review both plan artifacts before the first apply and record the disposition of legacy shared state.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-013",
+      "title": "Quality enforcement requires Databricks persistence and Lakeflow proof",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "blocked",
+      "owner": "data_engineering",
+      "summary": "Shared quality logic now covers medallion and warehouse outputs, persists detailed and run-level evidence before failure, and keeps Lakeflow monitoring semantics explicit, but deployed persistence and event-log behaviour are unproven.",
+      "source_evidence": [
+        {
+          "path": "src/lakehouse_demo/spark_quality.py",
+          "control": "Quality checks return bounded results for medallion and warehouse invariants."
+        },
+        {
+          "path": "notebooks/04_quality_checks.py",
+          "control": "Detailed and summary evidence is appended before error-level failure."
+        },
+        {
+          "path": "notebooks/06_lakeflow_quality_expectations.py",
+          "control": "Expectation monitoring rules are source controlled and distinguished from publication gates."
+        },
+        {
+          "path": "tests_runtime/test_spark_quality_runtime.py",
+          "control": "Quality success, failure, warning, and evidence-summary scenarios execute in Spark."
+        }
+      ],
+      "pending_evidence": [
+        "Development writes durable quality evidence before a deliberately failed task terminates.",
+        "Lakeflow event-log metrics match the declared expectations.",
+        "Reporting and operational-health queries select the latest run correctly."
+      ],
+      "next_action": "Execute a controlled development quality failure after authenticated deployment and retain both Delta and event-log evidence.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-014",
+      "title": "Forecast readiness and versioned publication require business and runtime evidence",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "pending",
+      "owner": "data_engineering",
+      "summary": "Calendar-day windows, explicit MAE and interval-coverage thresholds, four readiness states, retained histories, and a committed-manifest boundary are implemented, but thresholds and live Delta/view behaviour are not yet approved or executed.",
+      "source_evidence": [
+        {
+          "path": "src/lakehouse_demo/spark_forecast.py",
+          "control": "Calendar windows, backtest metrics, and readiness classification execute in Spark."
+        },
+        {
+          "path": "src/lakehouse_demo/spark_forecast_publication.py",
+          "control": "Run histories, fingerprints, state transitions, and latest-committed selection are executable."
+        },
+        {
+          "path": "notebooks/05_forecast_validation.py",
+          "control": "Databricks persistence uses a manifest-last visibility boundary and explicit recovery stages."
+        },
+        {
+          "path": "tests_runtime/test_spark_forecast_publication_runtime.py",
+          "control": "Retries, partial writes, corruption, and latest-commit scenarios execute locally."
+        }
+      ],
+      "pending_evidence": [
+        "A human approves readiness thresholds for the intended synthetic demonstration claim.",
+        "Development proves Delta MERGE and DELETE behaviour, current views, schema evolution, and grants.",
+        "A failed or interrupted publication visibly falls back to the preceding committed run."
+      ],
+      "next_action": "Approve explicit thresholds, then execute and recover a controlled development publication before client-facing use.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-015",
+      "title": "Deployment and runtime identity separation is not proven effective",
+      "priority": "high",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "platform",
+      "summary": "The bundle now binds jobs and pipelines to a runtime service principal separate from the GitHub OIDC deployment identity, with a machine-readable privilege matrix and dry-run bootstrap, but effective grants and denied actions are unknown.",
+      "source_evidence": [
+        {
+          "path": "governance/runtime_identity_policy.json",
+          "control": "Deployment and runtime responsibilities are separated explicitly."
+        },
+        {
+          "path": "scripts/bootstrap_runtime_identity.py",
+          "control": "Runtime identity bootstrap is bounded and dry-run first."
+        },
+        {
+          "path": "resources/lakehouse_workflow.yml",
+          "control": "The workflow declares a distinct run_as service principal."
+        },
+        {
+          "path": "resources/lakehouse_quality_expectations.yml",
+          "control": "The pipeline declares the runtime service principal."
+        }
+      ],
+      "pending_evidence": [
+        "Deployment identity can manage the bundle but cannot perform runtime data processing outside its duties.",
+        "Runtime identity can execute required tasks but cannot deploy or administer workspace resources.",
+        "Required and denied actions are captured for both identities in development."
+      ],
+      "next_action": "Bootstrap identities after OIDC setup, inspect plans, then execute least-privilege positive and negative tests.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-016",
+      "title": "Operational alerts and retention are policy only",
+      "priority": "medium",
+      "source_status": "mitigated",
+      "runtime_status": "blocked",
+      "external_status": "blocked",
+      "owner": "data_engineering",
+      "summary": "The repository defines owners, alert conditions, detection targets, retention expectations, bounded SQL, and runbooks, but no notification destination, acknowledgement path, retention job, or live dashboard is deployed.",
+      "source_evidence": [
+        {
+          "path": "governance/operational_alert_policy.json",
+          "control": "Alert ownership, conditions, detection delays, and retention expectations are machine readable."
+        },
+        {
+          "path": "sql/operational_health.sql",
+          "control": "Bounded candidate queries expose quality, forecast, and ingestion health."
+        },
+        {
+          "path": "docs/runbooks/operational_health.md",
+          "control": "The runbook preserves the distinction between policy and live delivery."
+        },
+        {
+          "path": "scripts/validate_operational_observability.py",
+          "control": "Repository policy, SQL, ownership, and runbook coverage are validated."
+        }
+      ],
+      "pending_evidence": [
+        "A deployed query or dashboard identifier is recorded.",
+        "A named notification destination receives and acknowledges a test alert.",
+        "Retention operations run in dry-run mode with recovery-window and Delta-version evidence before deletion."
+      ],
+      "next_action": "Select an external notification destination and authenticated development workspace before activating delivery or retention.",
+      "dependencies": [
+        "issue #44"
+      ]
+    },
+    {
+      "id": "R-017",
+      "title": "Runtime compatibility can drift through partial upgrades",
+      "priority": "medium",
+      "source_status": "mitigated",
+      "runtime_status": "pending",
+      "external_status": "not_applicable",
+      "owner": "repository_maintainer",
+      "summary": "The current Python, Java, PySpark, Py4J, Databricks Runtime, and runner baseline is machine readable and partial major upgrades are prohibited, but a future upgrade still requires complete local and Databricks evidence.",
+      "source_evidence": [
+        {
+          "path": "governance/runtime_compatibility.json",
+          "control": "The accepted matrix and blocked upgrade candidates are explicit."
+        },
+        {
+          "path": "scripts/validate_runtime_compatibility.py",
+          "control": "Repository evidence must match the complete accepted matrix."
+        },
+        {
+          "path": "requirements-spark.txt",
+          "control": "PySpark and Py4J are pinned with hashes."
+        },
+        {
+          "path": "databricks.yml",
+          "control": "The Databricks Runtime input is explicit."
+        }
+      ],
+      "pending_evidence": [
+        "Any candidate upgrade changes Python, Java, PySpark, Py4J, and Databricks Runtime coherently.",
+        "The complete standard and Spark suites pass on the candidate matrix.",
+        "Development Databricks execution and representative performance are captured before production consideration."
+      ],
+      "next_action": "Treat runtime upgrades as a dedicated compatibility programme rather than independent dependency merges.",
+      "dependencies": []
+    }
+  ]
+}
