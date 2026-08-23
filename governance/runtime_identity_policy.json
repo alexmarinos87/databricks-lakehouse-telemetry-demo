@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "identities": {
+    "deployer": {
+      "bundle_variable": "ci_service_principal_name",
+      "github_variable": "DATABRICKS_CLIENT_ID",
+      "allowed_capabilities": [
+        "bundle_validate_and_plan",
+        "bundle_resource_lifecycle",
+        "resource_permission_management",
+        "reporting_asset_publication",
+        "trigger_existing_workflow"
+      ],
+      "expected_denied_capabilities": [
+        "lakehouse_job_run_as",
+        "pipeline_run_as",
+        "runtime_table_modify",
+        "source_volume_read_write"
+      ]
+    },
+    "runtime": {
+      "bundle_variable": "runtime_service_principal_name",
+      "github_variable": "DATABRICKS_RUNTIME_CLIENT_ID",
+      "allowed_capabilities": [
+        "lakehouse_job_run_as",
+        "pipeline_run_as",
+        "source_volume_read_write",
+        "checkpoint_read_write",
+        "schema_use",
+        "runtime_table_create_modify_select"
+      ],
+      "expected_denied_capabilities": [
+        "bundle_resource_lifecycle",
+        "job_manage",
+        "pipeline_manage",
+        "sql_warehouse_manage",
+        "schema_manage",
+        "volume_manage",
+        "grant_management"
+      ]
+    }
+  },
+  "evidence": {
+    "repository_contract": "required",
+    "authenticated_plan": "required_before_apply",
+    "effective_permission_export": "required_before_runtime",
+    "denied_capability_review": "required_before_runtime",
+    "static_client_secret": "prohibited"
+  }
+}
