@@ -146,7 +146,7 @@ def build_assignment_history(
     conflict_machines = conflicts.select("machine_id").distinct()
     rejected_conflicts = daily.join(
         conflicts.select("machine_id", "event_date"),
-        ("machine_id", "event_date"),
+        ["machine_id", "event_date"],
         "inner",
     )
     rejected_evidence = invalid.unionByName(
