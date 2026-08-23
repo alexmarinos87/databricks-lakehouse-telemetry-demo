@@ -16,6 +16,9 @@ spark-warehouse/
 metastore_db/
 derby.log
 
+# Local external-control configuration and credentials
+.bootstrap/
+
 # Data outputs generated while experimenting
 tmp/
 output/
