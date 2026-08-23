@@ -23,7 +23,7 @@ class WarehouseMeasureContractTest(unittest.TestCase):
             "observed_minutes",
             "uptime_pct",
             "idle_pct",
-            "downtime_pct",
+            "downtime_impact_ratio_pct",
             "maintenance_pct",
             "avg_health_score",
             "event_ts_utc",
@@ -37,6 +37,8 @@ class WarehouseMeasureContractTest(unittest.TestCase):
             self.assertIn(f'"{measure_name}"', source)
 
         self.assertIn("def _percentage(", source)
+        self.assertIn("downtime_impact_ratio()", source)
+        self.assertNotIn('"downtime_pct"', source)
         self.assertIn("eqNullSafe", source)
         self.assertIn("F.sum(", source)
         self.assertIn('"measure_mismatch"', source)
