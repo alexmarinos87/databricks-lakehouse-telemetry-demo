@@ -74,7 +74,7 @@
       "owner": "platform",
       "condition": "authenticated_identity_does_not_match_expected_client_id",
       "maximum_detection_delay_minutes": 5,
-      "runbook": "docs/runtime_identity.md#failure-and-rollback"
+      "runbook": "docs/runbooks/operational_health.md#deploymentruntime-identity-mismatch"
     }
   ],
   "delivery": {
