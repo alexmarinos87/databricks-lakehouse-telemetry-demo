@@ -35,13 +35,14 @@ class QualityEvidenceContractTest(unittest.TestCase):
             "uptime_fact_dimension_keys_present",
             "uptime_fact_percentage_bounds",
             "uptime_fact_status_minutes_within_observed",
-            "uptime_fact_downtime_semantics_review",
+            "uptime_fact_downtime_impact_consistent",
             "failure_fact_grain_unique",
             "failure_fact_dimension_keys_present",
             "failure_fact_measures_in_bounds",
         ):
             self.assertIn(f'"{check_name}"', source)
-        self.assertIn('severity="warning"', source)
+        self.assertIn("invalid_downtime_impact_rows", source)
+        self.assertNotIn("uptime_fact_downtime_semantics_review", source)
         self.assertIn("Quality check could not be evaluated", source)
         self.assertNotIn("str(exc)", source)
 
