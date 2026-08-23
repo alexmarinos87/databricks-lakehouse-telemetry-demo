@@ -36,6 +36,7 @@ MATERIALIZED_SEMANTIC_COLUMNS = (
     "downtime_exceeds_observed",
     "downtime_semantics_version",
 )
+_MATERIALIZED_SEMANTIC_COLUMN_SET = set(MATERIALIZED_SEMANTIC_COLUMNS)
 
 
 @dataclass(frozen=True, order=True)
@@ -185,17 +186,43 @@ def materialized_downtime_findings(
     return tuple(sorted(set(findings)))
 
 
-def _materialize_and_validate(dataframe: DataFrame, *, label: str) -> DataFrame:
-    enriched = with_downtime_semantics(dataframe).withColumn(
-        "downtime_pct", F.col("downtime_load_pct")
-    )
-    findings = materialized_downtime_findings(enriched)
+def _raise_findings(
+    findings: Sequence[MaterializedDowntimeFinding], *, label: str
+) -> None:
     if findings:
         summary = ",".join(
             f"{finding.code}:{finding.observed_count}" for finding in findings
         )
         raise ValueError(f"{label} failed downtime semantic validation: {summary}")
+
+
+def _materialize_and_validate(dataframe: DataFrame, *, label: str) -> DataFrame:
+    enriched = with_downtime_semantics(dataframe).withColumn(
+        "downtime_pct", F.col("downtime_load_pct")
+    )
+    _raise_findings(materialized_downtime_findings(enriched), label=label)
     return enriched
+
+
+def ensure_materialized_downtime_semantics(
+    dataframe: DataFrame, *, label: str
+) -> DataFrame:
+    """Materialize an unversioned frame or validate a fully versioned frame.
+
+    A partial semantic schema fails closed. This prevents a frame carrying only
+    the legacy ``downtime_pct`` alias from being mistaken for governed output.
+    """
+
+    present = _MATERIALIZED_SEMANTIC_COLUMN_SET.intersection(dataframe.columns)
+    if not present:
+        return _materialize_and_validate(dataframe, label=label)
+    if present != _MATERIALIZED_SEMANTIC_COLUMN_SET:
+        missing = sorted(_MATERIALIZED_SEMANTIC_COLUMN_SET.difference(present))
+        raise ValueError(
+            f"{label} has a partial downtime semantic schema: {', '.join(missing)}"
+        )
+    _raise_findings(materialized_downtime_findings(dataframe), label=label)
+    return dataframe
 
 
 def build_governed_gold_frames(silver: DataFrame) -> Mapping[str, DataFrame]:
@@ -204,7 +231,7 @@ def build_governed_gold_frames(silver: DataFrame) -> Mapping[str, DataFrame]:
     frames = dict(build_gold_frames(silver))
     if GOLD_UPTIME not in frames:
         raise ValueError("Gold transformation did not return gold_machine_uptime")
-    frames[GOLD_UPTIME] = _materialize_and_validate(
+    frames[GOLD_UPTIME] = ensure_materialized_downtime_semantics(
         frames[GOLD_UPTIME], label=GOLD_UPTIME
     )
     return frames
@@ -216,21 +243,13 @@ def build_governed_warehouse_frames(
 ) -> Mapping[str, DataFrame]:
     """Build warehouse outputs and retain the same semantic evidence in the fact."""
 
-    source_findings = materialized_downtime_findings(gold_uptime)
-    if source_findings:
-        summary = ",".join(
-            f"{finding.code}:{finding.observed_count}"
-            for finding in source_findings
-        )
-        raise ValueError(
-            "gold_machine_uptime failed materialized downtime validation: "
-            + summary
-        )
-
-    frames = dict(build_warehouse_frames(gold_uptime, gold_failures))
+    governed_gold_uptime = ensure_materialized_downtime_semantics(
+        gold_uptime, label=GOLD_UPTIME
+    )
+    frames = dict(build_warehouse_frames(governed_gold_uptime, gold_failures))
     if UPTIME_FACT not in frames:
         raise ValueError("Warehouse transformation did not return the uptime fact")
-    frames[UPTIME_FACT] = _materialize_and_validate(
+    frames[UPTIME_FACT] = ensure_materialized_downtime_semantics(
         frames[UPTIME_FACT], label=UPTIME_FACT
     )
     return frames
@@ -250,12 +269,30 @@ def audit_warehouse_downtime_semantics(
         (GOLD_UPTIME, gold_uptime),
         (UPTIME_FACT, warehouse_frames[UPTIME_FACT]),
     ):
+        present = _MATERIALIZED_SEMANTIC_COLUMN_SET.intersection(dataframe.columns)
+        if not present:
+            governed = _materialize_and_validate(dataframe, label=dataset)
+            dataset_findings: Sequence[MaterializedDowntimeFinding] = (
+                materialized_downtime_findings(governed)
+            )
+        elif present != _MATERIALIZED_SEMANTIC_COLUMN_SET:
+            dataset_findings = (
+                MaterializedDowntimeFinding(
+                    code="missing_materialized_downtime_columns",
+                    observed_count=len(
+                        _MATERIALIZED_SEMANTIC_COLUMN_SET.difference(present)
+                    ),
+                    detail="Dataset has a partial downtime semantic schema",
+                ),
+            )
+        else:
+            dataset_findings = materialized_downtime_findings(dataframe)
         findings.extend(
             WarehouseFinding(
                 code=finding.code,
                 dataset=dataset,
                 count=finding.observed_count,
             )
-            for finding in materialized_downtime_findings(dataframe)
+            for finding in dataset_findings
         )
     return tuple(sorted(findings))
