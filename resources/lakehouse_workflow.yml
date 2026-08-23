@@ -73,6 +73,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              gold_publication_run_id: "job_{{job.run_id}}"
 
         - task_key: quality_checks
           depends_on:
