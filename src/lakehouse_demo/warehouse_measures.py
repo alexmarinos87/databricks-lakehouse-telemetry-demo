@@ -12,6 +12,7 @@ from typing import Mapping
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from lakehouse_demo.spark_downtime_semantics import with_downtime_semantics
 from lakehouse_demo.spark_warehouse import (
     FAILURE_FACT,
     UPTIME_FACT,
@@ -39,6 +40,21 @@ _UPTIME_MEASURES = (
     ("uptime_pct", "uptime_pct", "fact_uptime_pct"),
     ("idle_pct", "idle_pct", "fact_idle_pct"),
     ("downtime_pct", "downtime_pct", "fact_downtime_pct"),
+    (
+        "downtime_load_pct",
+        "downtime_load_pct",
+        "fact_downtime_load_pct",
+    ),
+    (
+        "downtime_exceeds_observed",
+        "downtime_exceeds_observed",
+        "fact_downtime_exceeds_observed",
+    ),
+    (
+        "downtime_semantics_version",
+        "downtime_semantics_version",
+        "fact_downtime_semantics_version",
+    ),
     (
         "maintenance_pct",
         "maintenance_pct",
@@ -106,13 +122,11 @@ def _expected_uptime_measures(gold_uptime: DataFrame) -> DataFrame:
     _require_columns(gold_uptime, required, label="gold uptime measures")
 
     expected = (
-        gold_uptime.withColumn(
+        with_downtime_semantics(gold_uptime)
+        .withColumn("downtime_pct", F.col("downtime_load_pct"))
+        .withColumn(
             "idle_pct",
             _percentage("idle_minutes", "observed_minutes"),
-        )
-        .withColumn(
-            "downtime_pct",
-            _percentage("downtime_minutes", "observed_minutes"),
         )
         .withColumn(
             "maintenance_pct",
