@@ -11,12 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
 
 UPTIME_FACT = "fact_machine_uptime_daily"
 FAILURE_FACT = "fact_machine_failure_event"
+UNKNOWN_MEMBER_POLICY = "reject_required_business_identity"
 
 _DIMENSION_KEYS = {
     "date_key": ("dim_date", "date_key"),
@@ -26,6 +27,24 @@ _DIMENSION_KEYS = {
     "site_key": ("dim_site", "site_key"),
     "fault_key": ("dim_fault", "fault_key"),
 }
+_UPTIME_BUSINESS_IDENTITY = (
+    "event_date",
+    "machine_id",
+    "client_id",
+    "site_id",
+    "model",
+)
+_FAILURE_BUSINESS_IDENTITY = (
+    "event_id",
+    "event_date",
+    "machine_id",
+    "client_id",
+    "site_id",
+    "model",
+    "fault_code",
+    "severity",
+)
+_ASSIGNMENT_COLUMNS = ("site_id", "client_id", "model")
 
 
 @dataclass(frozen=True, order=True)
@@ -52,19 +71,143 @@ def _ensure_non_empty(dataframe: DataFrame, *, label: str) -> None:
         raise ValueError(f"{label} must contain at least one row")
 
 
-def _machine_assignments(uptime: DataFrame, failures: DataFrame) -> DataFrame:
-    assignments = (
-        uptime.select("machine_id", "site_id", "client_id", "model")
+def _require_business_identity(
+    dataframe: DataFrame,
+    columns: tuple[str, ...],
+    *,
+    label: str,
+) -> None:
+    """Reject absent business identities rather than inventing unknown members."""
+
+    _require_columns(dataframe, set(columns), label=label)
+    predicate = F.lit(False)
+    for column in columns:
+        predicate = predicate | F.col(column).isNull() | (
+            F.length(F.trim(F.col(column).cast("string"))) == 0
+        )
+    invalid_count = int(dataframe.where(predicate).count())
+    if invalid_count:
+        raise ValueError(
+            f"{label} contains {invalid_count} rows with missing required business identity"
+        )
+
+
+def _assignment_observations(uptime: DataFrame, failures: DataFrame) -> DataFrame:
+    observations = (
+        uptime.select("event_date", "machine_id", *_ASSIGNMENT_COLUMNS)
         .unionByName(
-            failures.select("machine_id", "site_id", "client_id", "model"),
+            failures.select("event_date", "machine_id", *_ASSIGNMENT_COLUMNS),
             allowMissingColumns=False,
         )
         .distinct()
     )
-    conflicts = assignments.groupBy("machine_id").count().where(F.col("count") > 1)
+    conflicts = (
+        observations.groupBy("machine_id", "event_date")
+        .agg(
+            F.countDistinct(
+                F.struct(*[F.col(column) for column in _ASSIGNMENT_COLUMNS])
+            ).alias("assignment_count")
+        )
+        .where(F.col("assignment_count") > 1)
+    )
     if _first_count(conflicts):
-        raise ValueError("gold inputs contain conflicting machine assignments")
-    return assignments
+        raise ValueError("gold inputs contain conflicting same-day machine assignments")
+    return observations
+
+
+def _machine_assignment_versions(observations: DataFrame) -> DataFrame:
+    """Build deterministic SCD2-style versions from dated assignment observations."""
+
+    ordering = Window.partitionBy("machine_id").orderBy("event_date")
+    cumulative = ordering.rowsBetween(Window.unboundedPreceding, Window.currentRow)
+    previous = {
+        column: F.lag(column).over(ordering)
+        for column in _ASSIGNMENT_COLUMNS
+    }
+    is_first = F.row_number().over(ordering) == 1
+    changed = is_first
+    for column in _ASSIGNMENT_COLUMNS:
+        changed = changed | ~F.col(column).eqNullSafe(previous[column])
+
+    segmented = (
+        observations.withColumn(
+            "_assignment_change",
+            F.when(changed, F.lit(1)).otherwise(F.lit(0)),
+        )
+        .withColumn(
+            "assignment_version",
+            F.sum("_assignment_change").over(cumulative).cast("int"),
+        )
+    )
+    versions = (
+        segmented.groupBy(
+            "machine_id",
+            "assignment_version",
+            *_ASSIGNMENT_COLUMNS,
+        )
+        .agg(F.min("event_date").alias("valid_from_date"))
+    )
+    version_order = Window.partitionBy("machine_id").orderBy(
+        "valid_from_date", "assignment_version"
+    )
+    return (
+        versions.withColumn(
+            "_next_valid_from_date",
+            F.lead("valid_from_date").over(version_order),
+        )
+        .withColumn(
+            "valid_to_date",
+            F.when(
+                F.col("_next_valid_from_date").isNotNull(),
+                F.date_sub(F.col("_next_valid_from_date"), 1),
+            ).otherwise(F.lit(None).cast("date")),
+        )
+        .withColumn("is_current", F.col("_next_valid_from_date").isNull())
+        .withColumn(
+            "machine_key",
+            F.xxhash64("machine_id", "valid_from_date"),
+        )
+        .drop("_next_valid_from_date")
+        .select(
+            "machine_key",
+            "machine_id",
+            "site_id",
+            "client_id",
+            "model",
+            "assignment_version",
+            "valid_from_date",
+            "valid_to_date",
+            "is_current",
+        )
+    )
+
+
+def _resolve_machine_version(source: DataFrame, machines: DataFrame, *, label: str) -> DataFrame:
+    source_alias = source.alias("source")
+    machine_alias = machines.alias("machine")
+    condition = (
+        (F.col("source.machine_id") == F.col("machine.machine_id"))
+        & (F.col("source.site_id") == F.col("machine.site_id"))
+        & (F.col("source.client_id") == F.col("machine.client_id"))
+        & (F.col("source.model") == F.col("machine.model"))
+        & (F.col("source.event_date") >= F.col("machine.valid_from_date"))
+        & (
+            F.col("machine.valid_to_date").isNull()
+            | (F.col("source.event_date") <= F.col("machine.valid_to_date"))
+        )
+    )
+    resolved = source_alias.join(machine_alias, condition, "left").select(
+        *[F.col(f"source.{column}").alias(column) for column in source.columns],
+        F.col("machine.machine_key").alias("machine_key"),
+    )
+    source_count = int(source.count())
+    resolved_count = int(resolved.count())
+    unmatched_count = int(resolved.where(F.col("machine_key").isNull()).count())
+    if unmatched_count:
+        raise ValueError(f"{label} contains rows without a dated machine assignment")
+    if resolved_count != source_count:
+        raise ValueError(f"{label} machine assignment resolution changed row count")
+    return resolved
 
 
 def build_warehouse_frames(
@@ -112,7 +255,19 @@ def build_warehouse_frames(
         label="gold failures",
     )
     _ensure_non_empty(uptime, label="gold uptime")
-    assignments = _machine_assignments(uptime, failures)
+    _require_business_identity(
+        uptime,
+        _UPTIME_BUSINESS_IDENTITY,
+        label="gold uptime",
+    )
+    _require_business_identity(
+        failures,
+        _FAILURE_BUSINESS_IDENTITY,
+        label="gold failures",
+    )
+
+    assignment_observations = _assignment_observations(uptime, failures)
+    machines = _machine_assignment_versions(assignment_observations)
 
     event_dates = (
         uptime.select("event_date")
@@ -154,24 +309,20 @@ def build_warehouse_frames(
         )
     )
 
-    machines = (
-        assignments.withColumn("machine_key", F.xxhash64("machine_id"))
-        .select("machine_key", "machine_id", "site_id", "client_id", "model")
-    )
     sites = (
-        assignments.select("site_id", "client_id")
+        assignment_observations.select("site_id", "client_id")
         .distinct()
         .withColumn("site_key", F.xxhash64("client_id", "site_id"))
         .select("site_key", "site_id", "client_id")
     )
     clients = (
-        assignments.select("client_id")
+        assignment_observations.select("client_id")
         .distinct()
         .withColumn("client_key", F.xxhash64("client_id"))
         .select("client_key", "client_id")
     )
     models = (
-        assignments.select("model")
+        assignment_observations.select("model")
         .distinct()
         .withColumn("model_key", F.xxhash64("model"))
         .select("model_key", "model")
@@ -191,24 +342,24 @@ def build_warehouse_frames(
         .select("fault_key", "fault_code", "severity", "severity_rank")
     )
 
-    date_members = dates.select(
-        F.col("date_day").alias("event_date"), "date_key"
+    uptime_with_machine = _resolve_machine_version(
+        uptime,
+        machines,
+        label="gold uptime",
+    )
+    failure_with_machine = _resolve_machine_version(
+        failures,
+        machines,
+        label="gold failures",
     )
 
     uptime_facts = (
-        uptime.join(
-            machines.select("machine_id", "machine_key"),
-            "machine_id",
-            "inner",
+        uptime_with_machine.withColumn(
+            "date_key", F.date_format("event_date", "yyyyMMdd").cast("int")
         )
-        .join(date_members, "event_date", "inner")
-        .join(
-            sites.select("site_id", "client_id", "site_key"),
-            ["site_id", "client_id"],
-            "inner",
-        )
-        .join(clients.select("client_id", "client_key"), "client_id", "inner")
-        .join(models.select("model", "model_key"), "model", "inner")
+        .withColumn("client_key", F.xxhash64("client_id"))
+        .withColumn("site_key", F.xxhash64("client_id", "site_id"))
+        .withColumn("model_key", F.xxhash64("model"))
         .withColumn("uptime_fact_key", F.xxhash64("event_date", "machine_id"))
         .withColumn(
             "downtime_pct",
@@ -261,24 +412,13 @@ def build_warehouse_frames(
     )
 
     failure_facts = (
-        failures.join(
-            machines.select("machine_id", "machine_key"),
-            "machine_id",
-            "inner",
+        failure_with_machine.withColumn(
+            "date_key", F.date_format("event_date", "yyyyMMdd").cast("int")
         )
-        .join(date_members, "event_date", "inner")
-        .join(
-            sites.select("site_id", "client_id", "site_key"),
-            ["site_id", "client_id"],
-            "inner",
-        )
-        .join(clients.select("client_id", "client_key"), "client_id", "inner")
-        .join(models.select("model", "model_key"), "model", "inner")
-        .join(
-            faults.select("fault_code", "severity", "fault_key"),
-            ["fault_code", "severity"],
-            "inner",
-        )
+        .withColumn("client_key", F.xxhash64("client_id"))
+        .withColumn("site_key", F.xxhash64("client_id", "site_id"))
+        .withColumn("model_key", F.xxhash64("model"))
+        .withColumn("fault_key", F.xxhash64("fault_code", "severity"))
         .withColumn("failure_fact_key", F.xxhash64("event_id"))
         .withColumn("failure_event_count", F.lit(1))
         .select(
