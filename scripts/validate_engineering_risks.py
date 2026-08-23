@@ -135,7 +135,6 @@ def load_policy(
     if not isinstance(risks, list) or not risks or len(risks) > 100:
         raise RiskPolicyError("risks must be a bounded non-empty list")
     seen_titles: set[str] = set()
-    seen_paths_by_risk: dict[str, set[str]] = {}
     for index, risk in enumerate(risks, start=1):
         if not isinstance(risk, dict) or set(risk) != _RISK_KEYS:
             raise RiskPolicyError("risk entry has an invalid shape")
@@ -185,7 +184,6 @@ def load_policy(
             _require_non_empty_string(
                 item["control"], label=f"{risk_id} evidence control", maximum=600
             )
-        seen_paths_by_risk[risk_id] = seen_paths
 
         pending = _require_string_list(
             risk["pending_evidence"],
@@ -252,6 +250,12 @@ def render_markdown(policy: Mapping[str, Any]) -> str:
 
     for risk in risks:
         owner = owners[risk["owner"]]["display_name"]
+        evidence_links = ", ".join(
+            f"[`{item['path']}`]({_relative_markdown_link(item['path'])})"
+            for item in risk["source_evidence"]
+        )
+        pending = "; ".join(risk["pending_evidence"])
+        dependencies = ", ".join(risk["dependencies"]) or "None."
         lines.extend(
             [
                 f"### {risk['id']} — {risk['title']}",
@@ -265,22 +269,13 @@ def render_markdown(policy: Mapping[str, Any]) -> str:
                 ),
                 f"- Owner: **{owner}**",
                 f"- Summary: {risk['summary']}",
-                "- Source evidence:",
+                f"- Source evidence: {evidence_links}",
+                f"- Pending evidence: {pending}",
+                f"- Dependencies: {dependencies}",
+                f"- Next action: {risk['next_action']}",
+                "",
             ]
         )
-        for item in risk["source_evidence"]:
-            lines.append(
-                f"  - [`{item['path']}`]({_relative_markdown_link(item['path'])}) — "
-                f"{item['control']}"
-            )
-        lines.append("- Pending evidence:")
-        for item in risk["pending_evidence"]:
-            lines.append(f"  - {item}")
-        if risk["dependencies"]:
-            lines.append("- Dependencies: " + ", ".join(risk["dependencies"]))
-        else:
-            lines.append("- Dependencies: None.")
-        lines.extend([f"- Next action: {risk['next_action']}", ""])
 
     lines.extend(
         [
