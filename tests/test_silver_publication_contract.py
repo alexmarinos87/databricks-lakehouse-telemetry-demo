@@ -50,7 +50,8 @@ class SilverPublicationContractTest(unittest.TestCase):
             "audit_family_publication",
             "publication_state=STATE_FAILED",
             "publication_state=STATE_COMMITTED",
-            "failed-run quarantine history remains available",
+            "failed-run quarantine history remains ",
+            "available by silver_publication_run_id",
         ):
             self.assertIn(token, source)
 
@@ -75,7 +76,8 @@ class SilverPublicationContractTest(unittest.TestCase):
         source = SILVER_NOTEBOOK.read_text(encoding="utf-8")
 
         self.assertIn("def _preflight_relations():", source)
-        self.assertIn("Preserve and rename legacy physical tables", source)
+        self.assertIn("Preserve and rename legacy physical ", source)
+        self.assertIn("tables before retrying.", source)
         self.assertLess(
             source.index("_preflight_relations()"),
             source.index("_merge_manifest(started_manifest)"),
