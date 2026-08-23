@@ -14,6 +14,8 @@ from typing import Mapping
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
+from lakehouse_demo.downtime_semantics import downtime_impact_ratio
+
 
 UPTIME_FACT = "fact_machine_uptime_daily"
 FAILURE_FACT = "fact_machine_failure_event"
@@ -120,12 +122,8 @@ def _machine_assignment_versions(observations: DataFrame) -> DataFrame:
 
     ordering = Window.partitionBy("machine_id").orderBy("event_date")
     cumulative = ordering.rowsBetween(Window.unboundedPreceding, Window.currentRow)
-    previous = {
-        column: F.lag(column).over(ordering)
-        for column in _ASSIGNMENT_COLUMNS
-    }
-    is_first = F.row_number().over(ordering) == 1
-    changed = is_first
+    previous = {column: F.lag(column).over(ordering) for column in _ASSIGNMENT_COLUMNS}
+    changed = F.row_number().over(ordering) == 1
     for column in _ASSIGNMENT_COLUMNS:
         changed = changed | ~F.col(column).eqNullSafe(previous[column])
 
@@ -163,10 +161,7 @@ def _machine_assignment_versions(observations: DataFrame) -> DataFrame:
             ).otherwise(F.lit(None).cast("date")),
         )
         .withColumn("is_current", F.col("_next_valid_from_date").isNull())
-        .withColumn(
-            "machine_key",
-            F.xxhash64("machine_id", "valid_from_date"),
-        )
+        .withColumn("machine_key", F.xxhash64("machine_id", "valid_from_date"))
         .drop("_next_valid_from_date")
         .select(
             "machine_key",
@@ -183,8 +178,6 @@ def _machine_assignment_versions(observations: DataFrame) -> DataFrame:
 
 
 def _resolve_machine_version(source: DataFrame, machines: DataFrame, *, label: str) -> DataFrame:
-    source_alias = source.alias("source")
-    machine_alias = machines.alias("machine")
     condition = (
         (F.col("source.machine_id") == F.col("machine.machine_id"))
         & (F.col("source.site_id") == F.col("machine.site_id"))
@@ -196,14 +189,15 @@ def _resolve_machine_version(source: DataFrame, machines: DataFrame, *, label: s
             | (F.col("source.event_date") <= F.col("machine.valid_to_date"))
         )
     )
-    resolved = source_alias.join(machine_alias, condition, "left").select(
+    resolved = source.alias("source").join(
+        machines.alias("machine"), condition, "left"
+    ).select(
         *[F.col(f"source.{column}").alias(column) for column in source.columns],
         F.col("machine.machine_key").alias("machine_key"),
     )
     source_count = int(source.count())
     resolved_count = int(resolved.count())
-    unmatched_count = int(resolved.where(F.col("machine_key").isNull()).count())
-    if unmatched_count:
+    if resolved.where(F.col("machine_key").isNull()).count():
         raise ValueError(f"{label} contains rows without a dated machine assignment")
     if resolved_count != source_count:
         raise ValueError(f"{label} machine assignment resolution changed row count")
@@ -255,16 +249,8 @@ def build_warehouse_frames(
         label="gold failures",
     )
     _ensure_non_empty(uptime, label="gold uptime")
-    _require_business_identity(
-        uptime,
-        _UPTIME_BUSINESS_IDENTITY,
-        label="gold uptime",
-    )
-    _require_business_identity(
-        failures,
-        _FAILURE_BUSINESS_IDENTITY,
-        label="gold failures",
-    )
+    _require_business_identity(uptime, _UPTIME_BUSINESS_IDENTITY, label="gold uptime")
+    _require_business_identity(failures, _FAILURE_BUSINESS_IDENTITY, label="gold failures")
 
     assignment_observations = _assignment_observations(uptime, failures)
     machines = _machine_assignment_versions(assignment_observations)
@@ -293,22 +279,11 @@ def build_warehouse_frames(
         .withColumn("week_of_year", F.weekofyear("date_day"))
         .withColumn("is_weekend", F.dayofweek("date_day").isin(1, 7))
         .select(
-            "date_key",
-            "date_day",
-            "year",
-            "quarter",
-            "month",
-            "month_name",
-            "year_month_key",
-            "year_month",
-            "day_of_month",
-            "day_of_week",
-            "day_name",
-            "week_of_year",
-            "is_weekend",
+            "date_key", "date_day", "year", "quarter", "month", "month_name",
+            "year_month_key", "year_month", "day_of_month", "day_of_week",
+            "day_name", "week_of_year", "is_weekend",
         )
     )
-
     sites = (
         assignment_observations.select("site_id", "client_id")
         .distinct()
@@ -342,16 +317,8 @@ def build_warehouse_frames(
         .select("fault_key", "fault_code", "severity", "severity_rank")
     )
 
-    uptime_with_machine = _resolve_machine_version(
-        uptime,
-        machines,
-        label="gold uptime",
-    )
-    failure_with_machine = _resolve_machine_version(
-        failures,
-        machines,
-        label="gold failures",
-    )
+    uptime_with_machine = _resolve_machine_version(uptime, machines, label="gold uptime")
+    failure_with_machine = _resolve_machine_version(failures, machines, label="gold failures")
 
     uptime_facts = (
         uptime_with_machine.withColumn(
@@ -361,26 +328,12 @@ def build_warehouse_frames(
         .withColumn("site_key", F.xxhash64("client_id", "site_id"))
         .withColumn("model_key", F.xxhash64("model"))
         .withColumn("uptime_fact_key", F.xxhash64("event_date", "machine_id"))
-        .withColumn(
-            "downtime_pct",
-            F.when(
-                F.col("observed_minutes") > 0,
-                F.round(
-                    F.col("downtime_minutes") / F.col("observed_minutes") * 100,
-                    2,
-                ),
-            ).otherwise(F.lit(None).cast("double")),
-        )
+        .withColumn("downtime_impact_ratio_pct", downtime_impact_ratio())
         .withColumn(
             "maintenance_pct",
             F.when(
                 F.col("observed_minutes") > 0,
-                F.round(
-                    F.col("maintenance_minutes")
-                    / F.col("observed_minutes")
-                    * 100,
-                    2,
-                ),
+                F.round(F.col("maintenance_minutes") / F.col("observed_minutes") * 100, 2),
             ).otherwise(F.lit(None).cast("double")),
         )
         .withColumn(
@@ -391,23 +344,11 @@ def build_warehouse_frames(
             ).otherwise(F.lit(None).cast("double")),
         )
         .select(
-            "uptime_fact_key",
-            "event_date",
-            "date_key",
-            "client_key",
-            "machine_key",
-            "model_key",
-            "site_key",
-            "running_minutes",
-            "idle_minutes",
-            "maintenance_minutes",
-            "downtime_minutes",
-            "observed_minutes",
-            "uptime_pct",
-            "idle_pct",
-            "downtime_pct",
-            "maintenance_pct",
-            "avg_health_score",
+            "uptime_fact_key", "event_date", "date_key", "client_key", "machine_key",
+            "model_key", "site_key", "running_minutes", "idle_minutes",
+            "maintenance_minutes", "downtime_minutes", "observed_minutes",
+            "uptime_pct", "idle_pct", "downtime_impact_ratio_pct",
+            "maintenance_pct", "avg_health_score",
         )
     )
 
@@ -422,23 +363,10 @@ def build_warehouse_frames(
         .withColumn("failure_fact_key", F.xxhash64("event_id"))
         .withColumn("failure_event_count", F.lit(1))
         .select(
-            "failure_fact_key",
-            "event_id",
-            "event_date",
-            "event_ts_utc",
-            "date_key",
-            "client_key",
-            "machine_key",
-            "model_key",
-            "site_key",
-            "fault_key",
-            "failure_event_count",
-            "temperature_c",
-            "vibration_mm_s",
-            "downtime_minutes",
-            "maintenance_cost_gbp",
-            "part_code",
-            "part_quantity",
+            "failure_fact_key", "event_id", "event_date", "event_ts_utc", "date_key",
+            "client_key", "machine_key", "model_key", "site_key", "fault_key",
+            "failure_event_count", "temperature_c", "vibration_mm_s",
+            "downtime_minutes", "maintenance_cost_gbp", "part_code", "part_quantity",
         )
     )
 
@@ -471,9 +399,7 @@ def _null_key_count(dataframe: DataFrame, keys: tuple[str, ...]) -> int:
     return int(dataframe.where(predicate).count())
 
 
-def _unmatched_key_count(
-    fact: DataFrame, dimension: DataFrame, *, key: str
-) -> int:
+def _unmatched_key_count(fact: DataFrame, dimension: DataFrame, *, key: str) -> int:
     return int(
         fact.where(F.col(key).isNotNull())
         .join(dimension.select(key).distinct(), key, "left_anti")
@@ -490,14 +416,8 @@ def audit_warehouse(
     """Execute source/fact, grain, null-key, and dimension-reference audits."""
 
     required_frames = {
-        "dim_client",
-        "dim_date",
-        "dim_fault",
-        "dim_machine",
-        "dim_model",
-        "dim_site",
-        UPTIME_FACT,
-        FAILURE_FACT,
+        "dim_client", "dim_date", "dim_fault", "dim_machine", "dim_model",
+        "dim_site", UPTIME_FACT, FAILURE_FACT,
     }
     missing_frames = sorted(required_frames.difference(warehouse_frames))
     if missing_frames:
@@ -509,26 +429,12 @@ def audit_warehouse(
     failure_fact = warehouse_frames[FAILURE_FACT]
     _require_columns(
         uptime_fact,
-        {
-            "date_key",
-            "client_key",
-            "machine_key",
-            "model_key",
-            "site_key",
-        },
+        {"date_key", "client_key", "machine_key", "model_key", "site_key"},
         label=UPTIME_FACT,
     )
     _require_columns(
         failure_fact,
-        {
-            "event_id",
-            "date_key",
-            "client_key",
-            "machine_key",
-            "model_key",
-            "site_key",
-            "fault_key",
-        },
+        {"event_id", "date_key", "client_key", "machine_key", "model_key", "site_key", "fault_key"},
         label=FAILURE_FACT,
     )
 
@@ -549,39 +455,19 @@ def audit_warehouse(
 
     duplicate_uptime = _duplicate_count(uptime_fact, ("date_key", "machine_key"))
     if duplicate_uptime:
-        findings.append(
-            WarehouseFinding(
-                code="duplicate_fact_grain",
-                dataset=UPTIME_FACT,
-                count=duplicate_uptime,
-            )
-        )
+        findings.append(WarehouseFinding("duplicate_fact_grain", UPTIME_FACT, duplicate_uptime))
     duplicate_failures = _duplicate_count(failure_fact, ("event_id",))
     if duplicate_failures:
-        findings.append(
-            WarehouseFinding(
-                code="duplicate_fact_grain",
-                dataset=FAILURE_FACT,
-                count=duplicate_failures,
-            )
-        )
+        findings.append(WarehouseFinding("duplicate_fact_grain", FAILURE_FACT, duplicate_failures))
 
     uptime_keys = ("date_key", "client_key", "machine_key", "model_key", "site_key")
     failure_keys = uptime_keys + ("fault_key",)
     null_uptime = _null_key_count(uptime_fact, uptime_keys)
     if null_uptime:
-        findings.append(
-            WarehouseFinding(
-                code="null_dimension_key", dataset=UPTIME_FACT, count=null_uptime
-            )
-        )
+        findings.append(WarehouseFinding("null_dimension_key", UPTIME_FACT, null_uptime))
     null_failures = _null_key_count(failure_fact, failure_keys)
     if null_failures:
-        findings.append(
-            WarehouseFinding(
-                code="null_dimension_key", dataset=FAILURE_FACT, count=null_failures
-            )
-        )
+        findings.append(WarehouseFinding("null_dimension_key", FAILURE_FACT, null_failures))
 
     for dataset, fact, keys in (
         (UPTIME_FACT, uptime_fact, uptime_keys),
@@ -589,11 +475,7 @@ def audit_warehouse(
     ):
         for key in keys:
             dimension_name, dimension_key = _DIMENSION_KEYS[key]
-            unmatched = _unmatched_key_count(
-                fact,
-                warehouse_frames[dimension_name],
-                key=dimension_key,
-            )
+            unmatched = _unmatched_key_count(fact, warehouse_frames[dimension_name], key=dimension_key)
             if unmatched:
                 findings.append(
                     WarehouseFinding(
