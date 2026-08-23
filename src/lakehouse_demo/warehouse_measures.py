@@ -12,6 +12,7 @@ from typing import Mapping
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from lakehouse_demo.downtime_semantics import downtime_impact_ratio
 from lakehouse_demo.spark_warehouse import (
     FAILURE_FACT,
     UPTIME_FACT,
@@ -38,7 +39,11 @@ _UPTIME_MEASURES = (
     ("observed_minutes", "observed_minutes", "fact_observed_minutes"),
     ("uptime_pct", "uptime_pct", "fact_uptime_pct"),
     ("idle_pct", "idle_pct", "fact_idle_pct"),
-    ("downtime_pct", "downtime_pct", "fact_downtime_pct"),
+    (
+        "downtime_impact_ratio_pct",
+        "downtime_impact_ratio_pct",
+        "fact_downtime_impact_ratio_pct",
+    ),
     (
         "maintenance_pct",
         "maintenance_pct",
@@ -111,8 +116,8 @@ def _expected_uptime_measures(gold_uptime: DataFrame) -> DataFrame:
             _percentage("idle_minutes", "observed_minutes"),
         )
         .withColumn(
-            "downtime_pct",
-            _percentage("downtime_minutes", "observed_minutes"),
+            "downtime_impact_ratio_pct",
+            downtime_impact_ratio(),
         )
         .withColumn(
             "maintenance_pct",
