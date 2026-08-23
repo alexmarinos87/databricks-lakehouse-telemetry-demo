@@ -50,13 +50,43 @@ The executable contract in
 It intentionally does not reject attributed downtime above observed minutes or
 load above 100.
 
+## Repository integration
+
+`src/lakehouse_demo/downtime_pipeline.py` is the governed integration boundary.
+The Gold and warehouse notebooks call it rather than calling the lower-level
+builders directly.
+
+The integration materializes these fields in both `gold_machine_uptime` and
+`fact_machine_uptime_daily`:
+
+```text
+downtime_pct
+downtime_load_pct
+downtime_exceeds_observed
+downtime_semantics_version
+```
+
+The compatibility alias is written from the canonical load rather than being
+calculated by a second independent formula. The warehouse publication gate then
+reconstructs and reconciles all four fields from Gold to the fact table.
+
+Quality controls now treat missing, inconsistent, or incorrectly versioned
+semantic evidence as an error. A load above 100 is not an error or warning by
+itself. Lakeflow expectations enforce the formula, alias, exceedance flag, and
+semantic version, and reporting assets use the explicit attributed-downtime
+labels.
+
+This source integration is not Databricks runtime evidence. A live migration
+still requires an authenticated plan, schema-evolution review, effective grants,
+Delta-version evidence, and validation of deployed reports.
+
 ## Data-product implications
 
 - Existing fact and reporting columns remain compatible.
 - New consumers should expose the preferred `downtime_load_pct` label.
 - Forecasting continues to predict attributed `downtime_minutes`, not telemetry
   availability loss.
-- Quality alerts should distinguish formula/invariant failures from high but
+- Quality alerts distinguish formula/invariant failures from high but
   semantically valid downtime load.
 - Comparisons between clients or sites must account for different observation
   coverage; raw attributed downtime alone is not a normalized availability
@@ -64,15 +94,17 @@ load above 100.
 
 ## Migration
 
-No automatic live table rewrite is included. Before adding the preferred alias
-to deployed tables or reports:
+The repository source now contains the additive fields and executable gates, but
+no automatic live table rewrite is performed. Before deploying the change:
 
 1. Profile zero-observation rows and legacy formula mismatches.
 2. Confirm downstream reports do not cap `downtime_pct` at 100.
-3. Add `downtime_load_pct` as an additive field or query alias.
+3. Review the additive Gold and fact schemas in an authenticated bundle plan.
 4. Retain the legacy field through a documented compatibility window.
 5. Update dashboard labels and explanatory text before removing the alias.
 6. Capture pre-change Delta versions and output-schema evidence.
+7. Run Gold, warehouse, quality, and reporting validation in development before
+   considering production apply.
 
 ## Sign-off boundary
 
