@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "active_baseline": {
+    "status": "accepted_current",
+    "python": "3.11",
+    "java": "17",
+    "pyspark": "3.5.0",
+    "py4j": "0.10.9.7",
+    "databricks_runtime": "15.4.x-scala2.12",
+    "github_runner": "ubuntu-24.04",
+    "evidence": [
+      "Dockerfile.ci",
+      "Dockerfile.spark-ci",
+      "requirements-spark.txt",
+      "databricks.yml",
+      ".github/workflows/spark-runtime.yml"
+    ]
+  },
+  "upgrade_candidates": [
+    {
+      "id": "python-3.14",
+      "status": "blocked_pending_complete_matrix",
+      "requested_changes": {
+        "python": "3.14"
+      },
+      "required_evidence": [
+        "matching_pyspark_support",
+        "matching_py4j_support",
+        "databricks_runtime_support",
+        "all_standard_tests",
+        "all_spark_runtime_tests",
+        "performance_comparison",
+        "rollback_image_digest"
+      ]
+    },
+    {
+      "id": "spark-4.2",
+      "status": "blocked_pending_complete_matrix",
+      "requested_changes": {
+        "pyspark": "4.2.0",
+        "py4j": "0.10.9.9"
+      },
+      "required_evidence": [
+        "matching_python_support",
+        "matching_java_support",
+        "matching_databricks_runtime",
+        "delta_and_lakeflow_api_review",
+        "all_standard_tests",
+        "all_spark_runtime_tests",
+        "performance_comparison",
+        "rollback_image_digest"
+      ]
+    }
+  ],
+  "rules": {
+    "partial_major_upgrade": "prohibited",
+    "floating_runtime_version": "prohibited",
+    "unhashed_python_dependency": "prohibited",
+    "merge_without_exact_matrix_evidence": "prohibited",
+    "production_upgrade_before_dev_runtime_evidence": "prohibited"
+  }
+}
