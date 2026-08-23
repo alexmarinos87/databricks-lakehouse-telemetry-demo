@@ -87,8 +87,11 @@ variables:
     description: Databricks group with read and reporting access to project outputs.
     default: lakehouse-demo-analysts
   ci_service_principal_name:
-    description: Databricks service principal display name or application ID used by CI/CD.
+    description: Databricks service principal used only for bundle deployment and bounded control-plane operations.
     default: lakehouse-demo-ci
+  runtime_service_principal_name:
+    description: Databricks service principal used as the Run as identity for jobs and pipelines.
+    default: lakehouse-demo-runtime
   spark_version:
     description: Databricks Runtime version for the shared job cluster.
     default: 15.4.x-scala2.12
