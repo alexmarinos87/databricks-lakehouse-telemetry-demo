@@ -43,7 +43,7 @@ class WarehouseModelContractTest(unittest.TestCase):
 
         self.assertIn('F.xxhash64("event_date", "machine_id")', module)
         self.assertIn('F.xxhash64("client_id")', module)
-        self.assertIn('F.xxhash64("machine_id")', module)
+        self.assertIn('F.xxhash64("machine_id", "valid_from_date")', module)
         self.assertIn('F.xxhash64("model")', module)
         self.assertIn('F.xxhash64("client_id", "site_id")', module)
         self.assertIn('F.date_format("date_day", "yyyyMMdd")', module)
@@ -57,6 +57,13 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn('"idle_pct"', module)
         self.assertIn('"maintenance_pct"', module)
         self.assertIn('F.col("observed_minutes") > 0', module)
+        for version_column in (
+            "assignment_version",
+            "valid_from_date",
+            "valid_to_date",
+            "is_current",
+        ):
+            self.assertIn(f'"{version_column}"', module)
 
     def test_shared_modules_build_and_audit_failure_facts(self):
         module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
@@ -76,7 +83,7 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("null_dimension_key", module)
         self.assertIn("unmatched_dimension_key", module)
         self.assertIn('"left_anti"', module)
-        self.assertIn("conflicting machine assignments", module)
+        self.assertIn("conflicting same-day machine assignments", module)
         self.assertIn("missing_fact_identity", identity)
         self.assertIn("unexpected_fact_identity", identity)
         self.assertIn("measure_mismatch", measures)
