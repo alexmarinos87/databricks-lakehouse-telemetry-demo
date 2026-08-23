@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from lakehouse_demo.spark_warehouse import (  # noqa: E402
     FAILURE_FACT,
+    UNKNOWN_MEMBER_POLICY,
     UPTIME_FACT,
     WarehouseFinding,
     audit_warehouse,
@@ -255,24 +256,79 @@ class SparkWarehouseRuntimeTest(unittest.TestCase):
             findings,
         )
 
-    def test_conflicting_machine_assignment_fails_closed(self) -> None:
-        conflict = self.spark.createDataFrame(
+    def test_cross_date_assignment_change_creates_scd2_machine_versions(self) -> None:
+        reassigned_uptime = self.spark.createDataFrame(
             [
+                _uptime_row(),
                 _uptime_row(
                     event_date=date(2026, 4, 3),
                     site_id="S9",
                     client_id="C9",
                     machine_id="M1",
                     model="OTHER",
-                )
+                ),
             ],
             schema=UPTIME_SCHEMA,
         )
+        empty_failures = self.spark.createDataFrame([], schema=FAILURE_SCHEMA)
 
-        with self.assertRaisesRegex(ValueError, "conflicting machine assignments"):
-            build_warehouse_frames(
-                self.uptime.unionByName(conflict), self.failures
-            )
+        warehouse = build_warehouse_frames(reassigned_uptime, empty_failures)
+        machines = warehouse["dim_machine"].orderBy("valid_from_date")
+        machine_rows = machines.collect()
+
+        self.assertEqual(2, len(machine_rows))
+        self.assertEqual(1, machine_rows[0]["assignment_version"])
+        self.assertEqual(date(2026, 4, 1), machine_rows[0]["valid_from_date"])
+        self.assertEqual(date(2026, 4, 2), machine_rows[0]["valid_to_date"])
+        self.assertFalse(machine_rows[0]["is_current"])
+        self.assertEqual(2, machine_rows[1]["assignment_version"])
+        self.assertEqual(date(2026, 4, 3), machine_rows[1]["valid_from_date"])
+        self.assertIsNone(machine_rows[1]["valid_to_date"])
+        self.assertTrue(machine_rows[1]["is_current"])
+        self.assertEqual(
+            2,
+            warehouse[UPTIME_FACT].select("machine_key").distinct().count(),
+        )
+        self.assertEqual(
+            (),
+            audit_warehouse(
+                gold_uptime=reassigned_uptime,
+                gold_failures=empty_failures,
+                warehouse_frames=warehouse,
+            ),
+        )
+
+    def test_same_day_conflicting_assignment_fails_closed(self) -> None:
+        conflict = self.spark.createDataFrame(
+            [
+                _uptime_row(),
+                _uptime_row(
+                    site_id="S9",
+                    client_id="C9",
+                    machine_id="M1",
+                    model="OTHER",
+                ),
+            ],
+            schema=UPTIME_SCHEMA,
+        )
+        empty_failures = self.spark.createDataFrame([], schema=FAILURE_SCHEMA)
+
+        with self.assertRaisesRegex(ValueError, "same-day machine assignments"):
+            build_warehouse_frames(conflict, empty_failures)
+
+    def test_missing_business_identity_fails_before_unknown_member_creation(self) -> None:
+        invalid = self.spark.createDataFrame(
+            [_uptime_row(site_id="")],
+            schema=UPTIME_SCHEMA,
+        )
+        empty_failures = self.spark.createDataFrame([], schema=FAILURE_SCHEMA)
+
+        self.assertEqual(
+            "reject_required_business_identity",
+            UNKNOWN_MEMBER_POLICY,
+        )
+        with self.assertRaisesRegex(ValueError, "missing required business identity"):
+            build_warehouse_frames(invalid, empty_failures)
 
     def test_failure_only_machine_is_represented(self) -> None:
         extra_failure = self.spark.createDataFrame(
