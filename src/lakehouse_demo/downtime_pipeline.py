@@ -249,7 +249,9 @@ def build_governed_warehouse_frames(
     frames = dict(build_warehouse_frames(governed_gold_uptime, gold_failures))
     if UPTIME_FACT not in frames:
         raise ValueError("Warehouse transformation did not return the uptime fact")
-    frames[UPTIME_FACT] = ensure_materialized_downtime_semantics(
+    # The lower-level warehouse builder intentionally retains only the legacy
+    # alias. Canonicalize its internal output before it becomes governed state.
+    frames[UPTIME_FACT] = _materialize_and_validate(
         frames[UPTIME_FACT], label=UPTIME_FACT
     )
     return frames
