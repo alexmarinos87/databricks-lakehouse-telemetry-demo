@@ -40,15 +40,24 @@ class DowntimeSemanticsContractTest(unittest.TestCase):
         self.assertNotIn("100.0)", source)
         self.assertIn("otherwise(F.lit(None).cast", source)
 
-    def test_warehouse_quality_and_measure_layers_use_one_semantic_name(self):
-        for path in (WAREHOUSE, QUALITY, MEASURES, IDENTITY):
+    def test_warehouse_and_measure_layers_emit_one_semantic_name(self):
+        for path in (WAREHOUSE, MEASURES, IDENTITY):
             with self.subTest(path=path.name):
                 source = path.read_text(encoding="utf-8")
                 self.assertIn("downtime_impact_ratio_pct", source)
                 self.assertNotIn('"downtime_pct"', source)
-        self.assertIn("invalid_downtime_impact_rows", QUALITY.read_text(encoding="utf-8"))
         self.assertIn("downtime_impact_ratio()", WAREHOUSE.read_text(encoding="utf-8"))
         self.assertIn("downtime_impact_ratio()", MEASURES.read_text(encoding="utf-8"))
+
+    def test_quality_delegates_to_the_shared_semantic_validator(self):
+        source = QUALITY.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "from lakehouse_demo.downtime_semantics import invalid_downtime_impact_rows",
+            source,
+        )
+        self.assertIn("invalid_downtime_impact_rows(uptime).count()", source)
+        self.assertNotIn('"downtime_pct"', source)
 
     def test_unresolved_warning_is_removed_in_favour_of_error_consistency(self):
         source = QUALITY.read_text(encoding="utf-8")
@@ -65,7 +74,7 @@ class DowntimeSemanticsContractTest(unittest.TestCase):
             "downtime_impact_ratio_pct",
             "not capped at 100",
             "intentional warehouse schema rename",
-            "restore the previous uptime fact Delta version",
+            "restore the previous uptime fact Delta",
         ):
             self.assertIn(token, source)
 
