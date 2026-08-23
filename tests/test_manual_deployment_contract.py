@@ -57,7 +57,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
             workflow.count("if: github.event.inputs.upload_sample_data == 'true'"),
         )
         self.assertEqual(
-            6,
+            4,
             workflow.count("if: github.event.inputs.run_workflow == 'true'"),
         )
         self.assertEqual(2, workflow.count("scripts/plan_ingestion_upload.py"))
