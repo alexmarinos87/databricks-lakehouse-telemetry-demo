@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "owners": {
+    "data_engineering": {
+      "role": "lakehouse-demo-engineers",
+      "responsibilities": [
+        "pipeline_run_health",
+        "data_quality_failures",
+        "forecast_publication_failures",
+        "ingestion_identity_failures"
+      ]
+    },
+    "platform": {
+      "role": "lakehouse-demo-admins",
+      "responsibilities": [
+        "deployment_identity",
+        "workspace_permissions",
+        "sql_warehouse_availability",
+        "alert_delivery_integration"
+      ]
+    }
+  },
+  "retention_expectations": {
+    "quality_check_results_days": 90,
+    "quality_metric_history_days": 180,
+    "forecast_history_days": 180,
+    "forecast_publication_manifest_days": 365,
+    "expectation_event_log_days": 90
+  },
+  "alerts": [
+    {
+      "id": "quality_error_check_failed",
+      "severity": "critical",
+      "owner": "data_engineering",
+      "condition": "latest_quality_failed_error_check_count > 0",
+      "maximum_detection_delay_minutes": 30,
+      "runbook": "docs/runbooks/operational_health.md#quality-errors"
+    },
+    {
+      "id": "quality_evidence_stale",
+      "severity": "warning",
+      "owner": "data_engineering",
+      "condition": "latest_quality_checked_at_older_than_hours >= 24",
+      "maximum_detection_delay_minutes": 60,
+      "runbook": "docs/runbooks/operational_health.md#stale-quality-evidence"
+    },
+    {
+      "id": "forecast_publication_failed",
+      "severity": "critical",
+      "owner": "data_engineering",
+      "condition": "latest_forecast_publication_state = FAILED",
+      "maximum_detection_delay_minutes": 30,
+      "runbook": "docs/runbooks/forecast_publication_recovery.md"
+    },
+    {
+      "id": "forecast_publication_stuck",
+      "severity": "warning",
+      "owner": "data_engineering",
+      "condition": "forecast_publication_state = STARTED for more than 60 minutes",
+      "maximum_detection_delay_minutes": 30,
+      "runbook": "docs/runbooks/forecast_publication_recovery.md"
+    },
+    {
+      "id": "invalid_ingestion_identity",
+      "severity": "critical",
+      "owner": "data_engineering",
+      "condition": "bronze_invalid_source_identity_row_count > 0",
+      "maximum_detection_delay_minutes": 30,
+      "runbook": "docs/runbooks/operational_health.md#invalid-ingestion-identity"
+    },
+    {
+      "id": "deployment_or_runtime_identity_mismatch",
+      "severity": "critical",
+      "owner": "platform",
+      "condition": "authenticated_identity_does_not_match_expected_client_id",
+      "maximum_detection_delay_minutes": 5,
+      "runbook": "docs/runtime_identity.md#failure-and-rollback"
+    }
+  ],
+  "delivery": {
+    "repository_state": "policy_only",
+    "required_external_evidence": [
+      "deployed_query_or_dashboard_identifier",
+      "notification_destination_identifier",
+      "test_alert_delivery_timestamp",
+      "acknowledging_owner",
+      "resolved_runbook_link"
+    ]
+  }
+}
