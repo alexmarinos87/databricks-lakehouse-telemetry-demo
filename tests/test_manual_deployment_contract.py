@@ -53,7 +53,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn("ingestion_mode:", workflow)
         self.assertIn("backfill_id:", workflow)
         self.assertEqual(
-            2,
+            6,
             workflow.count("if: github.event.inputs.upload_sample_data == 'true'"),
         )
         self.assertEqual(
