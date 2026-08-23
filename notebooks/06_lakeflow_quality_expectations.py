@@ -64,17 +64,49 @@ def quality_expectation_silver_machine_events():
 
 @dp.materialized_view(
     name="quality_expectation_gold_machine_uptime",
-    comment="Gold uptime output with pipeline expectation metrics.",
+    comment="Gold uptime output with attributed-downtime semantic evidence.",
 )
 @dp.expect_all(
     {
         "event_date_present": "event_date IS NOT NULL",
         "machine_id_present": "machine_id IS NOT NULL AND length(trim(cast(machine_id AS STRING))) > 0",
         "site_id_present": "site_id IS NOT NULL AND length(trim(cast(site_id AS STRING))) > 0",
-        "downtime_non_negative": "downtime_minutes IS NULL OR downtime_minutes >= 0",
-        "observed_minutes_non_negative": "observed_minutes IS NULL OR observed_minutes >= 0",
+        "duration_values_present": (
+            "running_minutes IS NOT NULL AND idle_minutes IS NOT NULL "
+            "AND maintenance_minutes IS NOT NULL "
+            "AND downtime_minutes IS NOT NULL AND observed_minutes IS NOT NULL"
+        ),
+        "duration_values_non_negative": (
+            "running_minutes >= 0 AND idle_minutes >= 0 "
+            "AND maintenance_minutes >= 0 "
+            "AND downtime_minutes >= 0 AND observed_minutes >= 0"
+        ),
+        "status_minutes_within_observed": (
+            "coalesce(running_minutes, 0) + coalesce(idle_minutes, 0) "
+            "+ coalesce(maintenance_minutes, 0) <= coalesce(observed_minutes, 0)"
+        ),
         "uptime_pct_in_range": "uptime_pct IS NULL OR (uptime_pct >= 0 AND uptime_pct <= 100)",
         "avg_health_score_in_range": "avg_health_score IS NULL OR (avg_health_score >= 0 AND avg_health_score <= 100)",
+        "downtime_load_formula_valid": (
+            "(observed_minutes > 0 "
+            "AND downtime_load_pct IS NOT NULL "
+            "AND abs(downtime_load_pct "
+            "- round(downtime_minutes / observed_minutes * 100, 2)) <= 0.01) "
+            "OR (observed_minutes = 0 AND downtime_minutes = 0 "
+            "AND downtime_load_pct = 0) "
+            "OR (observed_minutes = 0 AND downtime_minutes > 0 "
+            "AND downtime_load_pct IS NULL)"
+        ),
+        "downtime_compatibility_alias_consistent": (
+            "downtime_pct <=> downtime_load_pct"
+        ),
+        "downtime_exceedance_flag_consistent": (
+            "downtime_exceeds_observed "
+            "<=> (downtime_minutes > observed_minutes)"
+        ),
+        "downtime_semantics_version_known": (
+            "downtime_semantics_version = 'attributed_incident_v1'"
+        ),
     }
 )
 def quality_expectation_gold_machine_uptime():
@@ -91,6 +123,10 @@ def quality_expectation_gold_machine_uptime():
         "observed_minutes",
         "avg_health_score",
         "uptime_pct",
+        "downtime_pct",
+        "downtime_load_pct",
+        "downtime_exceeds_observed",
+        "downtime_semantics_version",
     )
 
 

@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 07 - Warehouse model
 # MAGIC
-# MAGIC Publish a reconciled star schema from the Gold layer using the same construction and publication-audit functions executed in local Spark CI.
+# MAGIC Publish a reconciled star schema from the Gold layer using the same governed construction and publication-audit functions executed in local Spark CI.
 
 # COMMAND ----------
 
@@ -39,10 +39,12 @@ def _add_project_src_to_path():
 
 _add_project_src_to_path()
 
+from lakehouse_demo.downtime_pipeline import (  # noqa: E402
+    build_governed_warehouse_frames,
+)
 from lakehouse_demo.spark_warehouse import (  # noqa: E402
     FAILURE_FACT,
     UPTIME_FACT,
-    build_warehouse_frames,
 )
 from lakehouse_demo.warehouse_publication import (  # noqa: E402
     audit_warehouse_publication,
@@ -74,7 +76,7 @@ warehouse_tables = {
 
 gold_uptime = spark.table(gold_uptime_table)
 gold_failures = spark.table(gold_failure_table)
-warehouse_frames = build_warehouse_frames(gold_uptime, gold_failures)
+warehouse_frames = build_governed_warehouse_frames(gold_uptime, gold_failures)
 
 missing_outputs = sorted(set(warehouse_tables).difference(warehouse_frames))
 if missing_outputs:
@@ -99,8 +101,8 @@ if findings:
     )
 
 print(
-    "Warehouse count, grain, referential, natural-identity, and measure-level "
-    "reconciliation passed before Delta publication"
+    "Warehouse count, grain, referential, natural-identity, measure-level, and "
+    "downtime-semantic reconciliation passed before Delta publication"
 )
 
 # COMMAND ----------

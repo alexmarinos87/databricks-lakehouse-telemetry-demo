@@ -13,11 +13,13 @@ from pyspark.sql import functions as F
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from lakehouse_demo.downtime_pipeline import (  # noqa: E402
+    build_governed_warehouse_frames,
+)
 from lakehouse_demo.spark_warehouse import (  # noqa: E402
     FAILURE_FACT,
     UPTIME_FACT,
     WarehouseFinding,
-    build_warehouse_frames,
 )
 from lakehouse_demo.warehouse_measures import (  # noqa: E402
     audit_warehouse_measures,
@@ -96,7 +98,7 @@ class WarehouseIdentityRuntimeTest(unittest.TestCase):
         ).cache()
         cls.frames = {
             name: dataframe.cache()
-            for name, dataframe in build_warehouse_frames(
+            for name, dataframe in build_governed_warehouse_frames(
                 cls.gold_uptime,
                 cls.gold_failures,
             ).items()

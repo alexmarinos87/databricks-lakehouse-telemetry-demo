@@ -79,6 +79,9 @@ class SparkQualityRuntimeTest(unittest.TestCase):
                     "idle_pct": 22.22,
                     "maintenance_pct": 11.11,
                     "downtime_pct": 11.11,
+                    "downtime_load_pct": 11.11,
+                    "downtime_exceeds_observed": False,
+                    "downtime_semantics_version": "attributed_incident_v1",
                 }
             ]
         ).cache()
@@ -126,6 +129,16 @@ class SparkQualityRuntimeTest(unittest.TestCase):
                 "pass",
                 "error",
                 "Warehouse fact grain is unique",
+                0,
+            ),
+            results,
+        )
+        self.assertIn(
+            QualityCheckResult(
+                "uptime_fact_downtime_semantics_valid",
+                "pass",
+                "error",
+                "Attributed downtime fields match the accepted semantic contract",
                 0,
             ),
             results,
@@ -179,23 +192,38 @@ class SparkQualityRuntimeTest(unittest.TestCase):
             results,
         )
 
-    def test_unresolved_downtime_semantics_are_a_warning(self) -> None:
-        review_uptime = self.uptime.withColumn("downtime_minutes", F.lit(120)).withColumn(
-            "downtime_pct", F.lit(133.33)
+    def test_high_attributed_downtime_load_is_valid_when_evidence_reconciles(self) -> None:
+        high_load = (
+            self.uptime.withColumn("downtime_minutes", F.lit(120))
+            .withColumn("downtime_pct", F.lit(133.33))
+            .withColumn("downtime_load_pct", F.lit(133.33))
+            .withColumn("downtime_exceeds_observed", F.lit(True))
         )
-        results = self._evaluate(fact_machine_uptime_daily=review_uptime)
-        warning = next(
+        results = self._evaluate(fact_machine_uptime_daily=high_load)
+        semantic = next(
             result
             for result in results
-            if result.check_name == "uptime_fact_downtime_semantics_review"
+            if result.check_name == "uptime_fact_downtime_semantics_valid"
         )
+
         self.assertEqual(
-            ("fail", "warning", 1),
-            (warning.status, warning.severity, warning.observed_count),
+            ("pass", "error", 0),
+            (semantic.status, semantic.severity, semantic.observed_count),
         )
-        self.assertFalse(
-            any(result.status == "fail" and result.severity == "error" for result in results)
+        self.assertFalse(any(result.status == "fail" for result in results))
+
+    def test_corrupted_downtime_load_is_an_error(self) -> None:
+        corrupted = self.uptime.withColumn("downtime_load_pct", F.lit(999.0))
+        results = self._evaluate(fact_machine_uptime_daily=corrupted)
+        semantic = next(
+            result
+            for result in results
+            if result.check_name == "uptime_fact_downtime_semantics_valid"
         )
+
+        self.assertEqual("fail", semantic.status)
+        self.assertEqual("error", semantic.severity)
+        self.assertGreaterEqual(semantic.observed_count, 1)
 
     def test_detailed_and_summary_frames_share_run_identity(self) -> None:
         detailed = quality_results_dataframe(

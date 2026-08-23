@@ -58,11 +58,11 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertNotIn("Window.partitionBy", notebook)
         self.assertNotIn("F.to_timestamp", notebook)
 
-    def test_gold_persists_every_shared_output(self):
+    def test_gold_persists_every_governed_output(self):
         notebook = GOLD.read_text(encoding="utf-8")
 
-        self.assertIn("build_gold_frames", notebook)
-        self.assertIn("gold_frames = build_gold_frames(silver)", notebook)
+        self.assertIn("build_governed_gold_frames", notebook)
+        self.assertIn("gold_frames = build_governed_gold_frames(silver)", notebook)
         for dataset_name in (
             "gold_machine_uptime",
             "gold_failure_events",
@@ -72,7 +72,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         ):
             self.assertIn(f'"{dataset_name}"', notebook)
         self.assertLess(
-            notebook.index("build_gold_frames(silver)"),
+            notebook.index("build_governed_gold_frames(silver)"),
             notebook.index(".saveAsTable("),
         )
         self.assertNotIn(".groupBy(", notebook)
@@ -137,13 +137,13 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
         self.assertNotIn(".groupBy(", notebook)
         self.assertNotIn('.mode("overwrite")', notebook)
 
-    def test_warehouse_audits_shared_outputs_before_publication(self):
+    def test_warehouse_audits_governed_outputs_before_publication(self):
         notebook = WAREHOUSE.read_text(encoding="utf-8")
 
-        self.assertIn("build_warehouse_frames", notebook)
+        self.assertIn("build_governed_warehouse_frames", notebook)
         self.assertIn("audit_warehouse_publication", notebook)
         self.assertIn(
-            "warehouse_frames = build_warehouse_frames(gold_uptime, gold_failures)",
+            "warehouse_frames = build_governed_warehouse_frames(gold_uptime, gold_failures)",
             notebook,
         )
         self.assertIn(
@@ -151,6 +151,7 @@ class NotebookRuntimeWiringTest(unittest.TestCase):
             notebook,
         )
         self.assertIn("Warehouse reconciliation failed before publication", notebook)
+        self.assertIn("downtime-semantic reconciliation passed", notebook)
         for dataset_name in (
             "dim_client",
             "dim_date",

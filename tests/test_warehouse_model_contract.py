@@ -5,6 +5,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = REPO_ROOT / "notebooks" / "07_warehouse_model.py"
 WAREHOUSE_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "spark_warehouse.py"
+DOWNTIME_PIPELINE = REPO_ROOT / "src" / "lakehouse_demo" / "downtime_pipeline.py"
 IDENTITY_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "warehouse_identity.py"
 MEASURE_MODULE = REPO_ROOT / "src" / "lakehouse_demo" / "warehouse_measures.py"
 PUBLICATION_MODULE = (
@@ -14,10 +15,10 @@ WORKFLOW = REPO_ROOT / "resources" / "lakehouse_workflow.yml"
 
 
 class WarehouseModelContractTest(unittest.TestCase):
-    def test_notebook_delegates_to_shared_construction_and_publication_audit(self):
+    def test_notebook_delegates_to_governed_construction_and_publication_audit(self):
         notebook = NOTEBOOK.read_text(encoding="utf-8")
 
-        self.assertIn("build_warehouse_frames", notebook)
+        self.assertIn("build_governed_warehouse_frames", notebook)
         self.assertIn("audit_warehouse_publication", notebook)
         self.assertIn("gold_machine_uptime", notebook)
         self.assertIn("gold_failure_events", notebook)
@@ -65,6 +66,15 @@ class WarehouseModelContractTest(unittest.TestCase):
         ):
             self.assertIn(f'"{version_column}"', module)
 
+    def test_governed_wrapper_materializes_attributed_downtime_fields(self):
+        pipeline = DOWNTIME_PIPELINE.read_text(encoding="utf-8")
+
+        self.assertIn("build_governed_warehouse_frames", pipeline)
+        self.assertIn("downtime_load_pct", pipeline)
+        self.assertIn("downtime_exceeds_observed", pipeline)
+        self.assertIn("downtime_semantics_version", pipeline)
+        self.assertIn("SEMANTIC_VERSION", pipeline)
+
     def test_shared_modules_build_and_audit_failure_facts(self):
         module = WAREHOUSE_MODULE.read_text(encoding="utf-8")
         identity = IDENTITY_MODULE.read_text(encoding="utf-8")
@@ -92,6 +102,7 @@ class WarehouseModelContractTest(unittest.TestCase):
         self.assertIn("audit_warehouse_publication", publication)
         self.assertIn("audit_warehouse_identity", publication)
         self.assertIn("audit_warehouse_measures", publication)
+        self.assertIn("audit_warehouse_downtime_semantics", publication)
 
     def test_warehouse_runs_between_gold_and_quality(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
