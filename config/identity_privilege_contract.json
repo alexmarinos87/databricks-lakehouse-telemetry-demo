@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "identities": {
+    "deployment": {
+      "principal_name": "lakehouse-demo-ci",
+      "allowed_capabilities": [
+        "bundle_validate",
+        "bundle_plan",
+        "bundle_deploy",
+        "manage_bundle_jobs_and_pipelines",
+        "manage_project_schema_and_volume_grants",
+        "publish_saved_queries",
+        "upload_bounded_synthetic_fixture"
+      ],
+      "denied_capabilities": [
+        "run_lakehouse_job_as_self",
+        "run_quality_pipeline_as_self",
+        "select_curated_tables",
+        "modify_lakehouse_tables",
+        "read_checkpoint_state"
+      ]
+    },
+    "runtime": {
+      "principal_name": "lakehouse-demo-runtime",
+      "allowed_capabilities": [
+        "run_lakehouse_job",
+        "run_quality_pipeline",
+        "read_source_volume",
+        "write_checkpoint_and_schema_state",
+        "create_and_modify_project_tables",
+        "read_project_tables"
+      ],
+      "denied_capabilities": [
+        "bundle_deploy",
+        "manage_job_permissions",
+        "manage_pipeline_permissions",
+        "manage_saved_query_permissions",
+        "change_github_environments",
+        "change_federation_policies"
+      ]
+    }
+  },
+  "required_external_evidence": [
+    "deployment_principal_can_assign_runtime_service_principal",
+    "runtime_principal_can_execute_job_and_pipeline",
+    "deployment_principal_cannot_select_curated_tables",
+    "runtime_principal_cannot_deploy_bundle",
+    "deployment_principal_cannot_run_job_as_itself"
+  ],
+  "known_exception": {
+    "capability": "upload_bounded_synthetic_fixture",
+    "reason": "The optional portfolio fixture is uploaded after deployment by the deployment workflow until a dedicated loader identity is introduced.",
+    "constraints": [
+      "manual_apply_workflow_only",
+      "repository_fixture_only",
+      "content_addressed_destination",
+      "no_overwrite",
+      "bounded_file_size",
+      "post_upload_digest_verification"
+    ]
+  }
+}
