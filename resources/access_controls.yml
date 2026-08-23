@@ -30,6 +30,11 @@ resources:
             - USE_SCHEMA
         - principal: ${var.ci_service_principal_name}
           privileges:
+            - MANAGE
+            - USE_SCHEMA
+            - CREATE_VOLUME
+        - principal: ${var.runtime_service_principal_name}
+          privileges:
             - USE_SCHEMA
             - CREATE_TABLE
             - CREATE_VOLUME
@@ -56,6 +61,10 @@ resources:
             - READ_VOLUME
             - WRITE_VOLUME
         - principal: ${var.ci_service_principal_name}
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME
+        - principal: ${var.runtime_service_principal_name}
           privileges:
             - READ_VOLUME
             - WRITE_VOLUME
