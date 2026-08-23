@@ -43,6 +43,7 @@ REPORTING_MATERIALIZED_VIEWS = (
     "quality_expectation_forecast_publication_manifest",
 )
 
+DEFAULT_RUNTIME_SERVICE_PRINCIPAL = "lakehouse-demo-runtime"
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 60.0
 DEFAULT_STATEMENT_TIMEOUT_SECONDS = 180.0
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -261,6 +262,9 @@ def _select_grants(
 
 
 def build_grants(args: argparse.Namespace) -> list[str]:
+    if args.service_principal == args.runtime_service_principal:
+        raise ValueError("deployment and runtime service principals must differ")
+
     catalog = sql_identifier(args.catalog)
     schema = sql_identifier(args.catalog, args.schema)
     volume = sql_identifier(args.catalog, args.schema, args.volume)
@@ -268,20 +272,24 @@ def build_grants(args: argparse.Namespace) -> list[str]:
     admin = sql_principal(args.admin_group)
     engineer = sql_principal(args.engineer_group)
     analyst = sql_principal(args.analyst_group)
-    service_principal = sql_principal(args.service_principal)
+    deployment_principal = sql_principal(args.service_principal)
+    runtime_principal = sql_principal(args.runtime_service_principal)
 
     statements = [
         f"GRANT USE CATALOG ON CATALOG {catalog} TO {admin}",
         f"GRANT USE CATALOG ON CATALOG {catalog} TO {engineer}",
         f"GRANT USE CATALOG ON CATALOG {catalog} TO {analyst}",
-        f"GRANT USE CATALOG ON CATALOG {catalog} TO {service_principal}",
+        f"GRANT USE CATALOG ON CATALOG {catalog} TO {deployment_principal}",
+        f"GRANT USE CATALOG ON CATALOG {catalog} TO {runtime_principal}",
         f"GRANT USE SCHEMA ON SCHEMA {schema} TO {admin}",
         f"GRANT USE SCHEMA ON SCHEMA {schema} TO {engineer}",
         f"GRANT USE SCHEMA ON SCHEMA {schema} TO {analyst}",
-        f"GRANT USE SCHEMA ON SCHEMA {schema} TO {service_principal}",
+        f"GRANT USE SCHEMA ON SCHEMA {schema} TO {deployment_principal}",
+        f"GRANT USE SCHEMA ON SCHEMA {schema} TO {runtime_principal}",
         f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME {volume} TO {admin}",
         f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME {volume} TO {engineer}",
-        f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME {volume} TO {service_principal}",
+        f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME {volume} TO {deployment_principal}",
+        f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME {volume} TO {runtime_principal}",
     ]
 
     if args.include_table_grants:
@@ -327,6 +335,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engineer-group", required=True)
     parser.add_argument("--analyst-group", required=True)
     parser.add_argument("--service-principal", required=True)
+    parser.add_argument(
+        "--runtime-service-principal",
+        default=DEFAULT_RUNTIME_SERVICE_PRINCIPAL,
+    )
     parser.add_argument("--include-table-grants", action="store_true")
     parser.add_argument(
         "--command-timeout-seconds",
