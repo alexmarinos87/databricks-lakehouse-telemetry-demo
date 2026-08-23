@@ -45,7 +45,7 @@ UPTIME_FACT_RECONCILIATION_COLUMNS = (
     "observed_minutes",
     "uptime_pct",
     "idle_pct",
-    "downtime_pct",
+    "downtime_impact_ratio_pct",
     "maintenance_pct",
     "avg_health_score",
 )
