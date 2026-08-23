@@ -27,9 +27,9 @@ class GoldPublicationContractTest(unittest.TestCase):
     def test_gold_notebook_versions_all_five_outputs_and_commits_last(self):
         source = GOLD_NOTEBOOK.read_text(encoding="utf-8")
 
+        self.assertIn('f"{dataset_name}_history"', source)
         for dataset in GOLD_DATASETS:
             self.assertIn(dataset, source)
-            self.assertIn(f'"{dataset}": "{dataset}_history"', source)
         for token in (
             "gold_publication_manifest",
             "gold_publication_run_id",
