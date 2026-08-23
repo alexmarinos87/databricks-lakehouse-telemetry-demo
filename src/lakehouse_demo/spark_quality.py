@@ -10,6 +10,9 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
+from lakehouse_demo.downtime_pipeline import materialized_downtime_findings
+
+
 QUALITY_TABLE_NAMES = (
     "bronze",
     "silver",
@@ -217,8 +220,8 @@ def _uptime_percentage_bounds(uptime: DataFrame) -> QualityCheckResult:
     return _outcome(
         "uptime_fact_percentage_bounds",
         uptime.where(predicate).count(),
-        pass_detail="Defined uptime percentages are within zero and one hundred",
-        fail_detail="Defined uptime percentages fall outside zero and one hundred",
+        pass_detail="Availability and status percentages are within zero and one hundred",
+        fail_detail="Availability or status percentages fall outside zero and one hundred",
     )
 
 
@@ -247,27 +250,14 @@ def _uptime_status_minutes(uptime: DataFrame) -> QualityCheckResult:
     )
 
 
-def _downtime_semantics_review(uptime: DataFrame) -> QualityCheckResult:
-    columns = ("downtime_minutes", "observed_minutes", "downtime_pct")
-    missing = _missing_columns(uptime, columns)
-    if missing:
-        return QualityCheckResult(
-            "uptime_fact_downtime_semantics_review",
-            "fail",
-            "warning",
-            "Uptime fact is missing downtime review columns",
-            len(missing),
-        )
-    review_count = uptime.where(
-        (F.col("downtime_minutes") > F.col("observed_minutes"))
-        | (F.col("downtime_pct") > 100)
-    ).count()
+def _uptime_downtime_semantics(uptime: DataFrame) -> QualityCheckResult:
+    findings = materialized_downtime_findings(uptime)
+    violation_count = sum(finding.observed_count for finding in findings)
     return _outcome(
-        "uptime_fact_downtime_semantics_review",
-        review_count,
-        pass_detail="No uptime rows require downtime-semantics review",
-        fail_detail="Uptime rows require an approved downtime business definition",
-        severity="warning",
+        "uptime_fact_downtime_semantics_valid",
+        violation_count,
+        pass_detail="Attributed downtime fields match the accepted semantic contract",
+        fail_detail="Attributed downtime fields violate formula, alias, flag, or version rules",
     )
 
 
@@ -392,9 +382,8 @@ def evaluate_quality_tables(
                     lambda: _uptime_status_minutes(uptime),
                 ),
                 _safe(
-                    "uptime_fact_downtime_semantics_review",
-                    lambda: _downtime_semantics_review(uptime),
-                    severity="warning",
+                    "uptime_fact_downtime_semantics_valid",
+                    lambda: _uptime_downtime_semantics(uptime),
                 ),
             )
         )
