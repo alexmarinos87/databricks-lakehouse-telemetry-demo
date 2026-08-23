@@ -43,7 +43,8 @@ _REQUIRED_RULES = {
     "merge_without_exact_matrix_evidence",
     "production_upgrade_before_dev_runtime_evidence",
 }
-_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){1,3}(?:[-+._A-Za-z0-9]*)?\Z")
+_DOTTED_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){1,3}(?:[-+._A-Za-z0-9]*)?\Z")
+_MAJOR_VERSION = re.compile(r"[0-9]+\Z")
 
 
 def _sha256(path: Path) -> str:
@@ -64,9 +65,15 @@ def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
         raise ValueError("active compatibility baseline has an invalid shape")
     if baseline["status"] != "accepted_current":
         raise ValueError("active compatibility baseline must be accepted_current")
-    for key in ("python", "java", "pyspark", "py4j"):
-        if not isinstance(baseline[key], str) or not _VERSION.fullmatch(baseline[key]):
+    for key in ("python", "pyspark", "py4j"):
+        if not isinstance(baseline[key], str) or not _DOTTED_VERSION.fullmatch(
+            baseline[key]
+        ):
             raise ValueError(f"active compatibility baseline has invalid {key}")
+    if not isinstance(baseline["java"], str) or not _MAJOR_VERSION.fullmatch(
+        baseline["java"]
+    ):
+        raise ValueError("active compatibility baseline has invalid java")
     if not isinstance(baseline["evidence"], list) or not baseline["evidence"]:
         raise ValueError("active compatibility baseline must name evidence files")
     for relative in baseline["evidence"]:
