@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "source_fields": {
+    "duration_minutes": {
+      "definition": "Observed duration represented by one source event.",
+      "constraints": ["integer", "non_negative"],
+      "relationship": "Does not cap downtime_minutes."
+    },
+    "downtime_minutes": {
+      "definition": "Additive operational outage-impact estimate attributed to the event.",
+      "constraints": ["integer", "non_negative"],
+      "relationship": "May overlap event duration and may exceed duration_minutes."
+    }
+  },
+  "daily_aggregates": {
+    "observed_minutes": {
+      "formula": "sum(duration_minutes)",
+      "definition": "Total observed event duration for the daily machine grain."
+    },
+    "running_minutes": {
+      "formula": "sum(duration_minutes where status = RUNNING)",
+      "relationship": "Part of observed_minutes."
+    },
+    "idle_minutes": {
+      "formula": "sum(duration_minutes where status = IDLE)",
+      "relationship": "Part of observed_minutes."
+    },
+    "maintenance_minutes": {
+      "formula": "sum(duration_minutes where status = MAINTENANCE)",
+      "relationship": "Part of observed_minutes."
+    },
+    "downtime_minutes": {
+      "formula": "sum(downtime_minutes)",
+      "relationship": "Independent outage-impact estimate; not a partition of observed_minutes."
+    }
+  },
+  "derived_fields": {
+    "downtime_impact_ratio_pct": {
+      "formula": "round(downtime_minutes / observed_minutes * 100, 2) when observed_minutes > 0; otherwise null",
+      "minimum": 0,
+      "maximum": null,
+      "definition": "Outage-impact minutes per observed minute, expressed as an uncapped percentage. It is not availability or elapsed-time share."
+    }
+  },
+  "prohibited_interpretations": [
+    "downtime_minutes must be less than or equal to duration_minutes",
+    "downtime_minutes must be less than or equal to observed_minutes",
+    "downtime_impact_ratio_pct is capped at 100",
+    "downtime_impact_ratio_pct is an availability percentage"
+  ]
+}
