@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "semantic_version": "effective_dated_assignment_v1",
+  "unknown_member_policy": {
+    "trusted_fact_behavior": "block_publication",
+    "surrogate_key_placeholder": "prohibited",
+    "source_row_behavior": "preserve_in_gold_or_quarantine_until_resolved",
+    "reason": "The synthetic product has mandatory client, site, model, machine, date, and fault identities; inventing an Unknown member would hide a broken assignment or dimension contract."
+  },
+  "assignment_policy": {
+    "natural_key": "machine_id",
+    "effective_grain": [
+      "machine_id",
+      "effective_from"
+    ],
+    "attributes": [
+      "client_id",
+      "site_id",
+      "model"
+    ],
+    "effective_from": "First event_date carrying the assignment.",
+    "effective_to": "Calendar day before the next distinct assignment; null for current assignment.",
+    "same_day_multiple_assignments": "block_publication",
+    "overlapping_effective_ranges": "block_publication",
+    "late_arriving_assignment": "rebuild_history_and_reconcile_all_affected_facts",
+    "source_precedence": "none; uptime and failure evidence have equal authority and disagreement blocks publication"
+  },
+  "required_evidence": [
+    "assignment_history_grain_unique",
+    "assignment_ranges_non_overlapping",
+    "at_most_one_current_assignment_per_machine",
+    "no_blank_assignment_attributes",
+    "fact_dimension_keys_non_null",
+    "fact_dimension_keys_resolve",
+    "source_to_fact_count_reconciliation",
+    "natural_identity_reconciliation"
+  ],
+  "decision_state": "repository_policy"
+}
