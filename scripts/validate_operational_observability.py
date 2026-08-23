@@ -89,6 +89,7 @@ def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
 def validate_assets(policy: Mapping[str, Any]) -> dict[str, Any]:
     sql = SQL_PATH.read_text(encoding="utf-8")
     runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+    normalized_runbook = " ".join(runbook.lower().split())
     for alert in policy["alerts"]:
         if alert["id"] not in sql and alert["id"] != "deployment_or_runtime_identity_mismatch":
             raise ValueError(f"SQL does not expose alert candidate {alert['id']}")
@@ -104,7 +105,7 @@ def validate_assets(policy: Mapping[str, Any]) -> dict[str, Any]:
     ):
         if token not in sql:
             raise ValueError(f"operational SQL is missing required token: {token}")
-    if "does not claim that a live notification channel" not in runbook:
+    if "does not claim that a live notification channel" not in normalized_runbook:
         raise ValueError("runbook must preserve the alert delivery evidence boundary")
     return {
         "schema_version": policy["schema_version"],
