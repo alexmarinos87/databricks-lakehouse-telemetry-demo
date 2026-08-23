@@ -24,9 +24,14 @@ DIMENSION_MEMBERS = {
 }
 
 
-def uptime_source(machine_id="M-001", site_id="S-001", model="EX-100"):
+def uptime_source(
+    machine_id="M-001",
+    site_id="S-001",
+    model="EX-100",
+    event_date="2025-01-01",
+):
     return {
-        "event_date": "2025-01-01",
+        "event_date": event_date,
         "machine_id": machine_id,
         "client_id": "C-001",
         "site_id": site_id,
@@ -46,9 +51,14 @@ def uptime_fact(machine_key=201, **overrides):
     return row
 
 
-def failure_source(event_id="E-001", machine_id="M-001"):
+def failure_source(
+    event_id="E-001",
+    machine_id="M-001",
+    event_date="2025-01-01",
+):
     return {
         "event_id": event_id,
+        "event_date": event_date,
         "machine_id": machine_id,
         "client_id": "C-001",
         "site_id": "S-001",
@@ -112,14 +122,47 @@ class WarehouseContractsTest(unittest.TestCase):
             ["machine_assignment_conflict", "duplicate_uptime_grain"],
             [finding.code for finding in findings],
         )
-        self.assertEqual((("machine_id", "M-001"),), findings[0].keys)
+        self.assertEqual(
+            (("machine_id", "M-001"), ("event_date", "2025-01-01")),
+            findings[0].keys,
+        )
         self.assertEqual(
             (("date_key", 20250101), ("machine_key", 201)),
             findings[1].keys,
         )
         self.assertEqual((("row_count", 2),), findings[1].details)
 
-    def test_conflicts_are_deterministic_and_identify_each_machine(self):
+    def test_cross_date_assignment_change_is_versionable_not_conflicting(self):
+        findings = evaluate(
+            uptime_sources=[
+                uptime_source(event_date="2025-01-01"),
+                uptime_source(
+                    site_id="S-002",
+                    model="EX-200",
+                    event_date="2025-01-02",
+                ),
+            ],
+            uptime_facts=[
+                uptime_fact(machine_key=201),
+                uptime_fact(
+                    machine_key=202,
+                    date_key=20250102,
+                    site_key=402,
+                    model_key=302,
+                ),
+            ],
+            dimension_members={
+                **DIMENSION_MEMBERS,
+                "date_key": [20250101, 20250102],
+            },
+        )
+
+        self.assertNotIn(
+            "machine_assignment_conflict",
+            [finding.code for finding in findings],
+        )
+
+    def test_conflicts_are_deterministic_and_identify_each_machine_and_date(self):
         rows = [
             uptime_source("M-002", "S-002", "EX-200"),
             uptime_source("M-001", "S-002", "EX-200"),
@@ -141,7 +184,10 @@ class WarehouseContractsTest(unittest.TestCase):
 
         self.assertEqual(forwards, backwards)
         self.assertEqual(
-            [(("machine_id", "M-001"),), (("machine_id", "M-002"),)],
+            [
+                (("machine_id", "M-001"), ("event_date", "2025-01-01")),
+                (("machine_id", "M-002"), ("event_date", "2025-01-01")),
+            ],
             [finding.keys for finding in conflicts],
         )
         self.assertTrue(all(finding.details[0][0] == "assignments" for finding in conflicts))
