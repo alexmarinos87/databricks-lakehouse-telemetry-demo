@@ -1,142 +1,61 @@
 # Engineering Risk Register
 
-This register is an audit snapshot, not proof that every risk is actively causing a failure. `Open — confirmed` means the cited configuration or behaviour was reproduced or directly observed. `Open — validate` means impact still needs runtime proof. `Source mitigated — validate` means a reviewed repository change removed the identified source defect, but effective Databricks or GitHub state still requires independent evidence. The repository maintainer owns triage until a named owner accepts an item.
+**Evidence reviewed:** 2026-08-23
 
-## R-001 — Databricks deployment authentication fails
+Source and local Spark evidence can mitigate a repository defect but cannot close Databricks, GitHub settings, notification, ownership, or consumer risks without independent effective-state evidence.
 
-- Priority/status: **Critical — Open, confirmed**
-- Owner/target: Repository maintainer; before the next deployment
-- Observed: 2026-08-14
-- Evidence: [Actions run 31846624702](https://github.com/alexmarinos87/databricks-lakehouse-telemetry-demo/actions/runs/31846624702) reached dev bundle validation with a host but empty client ID/secret and failed authentication.
-- Required closure: Configure environment-scoped workload identity federation or valid service-principal authentication, add an auth preflight, and attach a successful validation run before any apply-enabled dispatch.
-- Closure evidence: Pending.
+Every risk remains open until its closure rule is met. A source mitigation removes or bounds a repository defect; it does not prove effective Databricks, GitHub, notification, ownership, or consumer behaviour.
 
-## R-002 — Development-mode names break exact post-deploy lookups
+The complete residual-risk statements, current evidence paths, external dependencies, and next evidence requirements are governed in [`governance/engineering_risk_register.json`](../governance/engineering_risk_register.json).
 
-- Priority/status: **High — Source mitigated, validate effective names**
-- Owner/target: Repository maintainer; before the next dev deployment
-- Observed: 2026-08-14; source mitigation merged 2026-08-19
-- Evidence: The previous dev bundle applied development-mode prefixes while the [deploy workflow](../.github/workflows/deploy.yml), [grant helper](../scripts/apply_uc_grants.py), and [query helper](../scripts/upsert_reporting_queries.py) searched for exact unprefixed resource names. [PR #27](https://github.com/alexmarinos87/databricks-lakehouse-telemetry-demo/pull/27) now clears the target name prefix and keeps deterministic target-qualified names.
-- Required closure: Inspect authenticated dev/prod plans and prove schema, volume, event-log, job, pipeline and SQL warehouse resolution end to end.
-- Closure evidence: Source configuration merged in commit `77ec43b`; runtime evidence pending.
+## Status model
 
-## R-003 — The expectations pipeline used an unsupported edition and fixed development mode
+| Dimension | Value | Meaning |
+| --- | --- | --- |
+| Source | Source mitigated | Repository code, configuration, tests, or policy address the identified source defect. |
+| Source | Source gap open | A repository-owned design or implementation gap remains. |
+| Source | Not source-controlled | The relevant control is an external setting; repository automation can only describe or bootstrap it. |
+| Runtime | Runtime evidence pending | The source control exists, but effective Databricks or consumer behaviour has not been proved. |
+| Runtime | Externally blocked | Required workspace, identity, repository-setting, or notification bootstrap is unavailable or incomplete. |
+| Runtime | Not applicable | No external runtime evidence is required for that risk. |
 
-- Priority/status: **High — Source mitigated, validate pipeline refresh**
-- Owner/target: Repository maintainer; before the next deployment
-- Observed: 2026-08-14; source mitigation merged 2026-08-19
-- Evidence: The previous [pipeline resource](../resources/lakehouse_quality_expectations.yml) selected `CORE` while its notebook defined expectations and fixed `development: true` for both targets. [PR #27](https://github.com/alexmarinos87/databricks-lakehouse-telemetry-demo/pull/27) selects `ADVANCED` and delegates development mode to target presets.
-- Required closure: Validate rendered dev/prod plans and attach a successful development pipeline update and refresh with expectation metrics.
-- Closure evidence: Source configuration merged in commit `77ec43b`; Databricks runtime evidence pending.
+## Current risks
 
-## R-004 — Local tests overstate runtime confidence
+| Risk | Priority | Source status | Runtime status | Title |
+| --- | --- | --- | --- | --- |
+| R-001 | Critical | Source mitigated | Externally blocked | Authenticated Databricks deployment remains unproven |
+| R-002 | High | Source mitigated | Runtime evidence pending | Deterministic resource-name resolution needs workspace proof |
+| R-003 | High | Source mitigated | Runtime evidence pending | Lakeflow expectations configuration needs runtime refresh evidence |
+| R-004 | High | Source mitigated | Runtime evidence pending | Local Spark evidence does not equal Databricks runtime evidence |
+| R-005 | High | Source mitigated | Runtime evidence pending | Warehouse assignment and join semantics need live Delta evidence |
+| R-006 | High | Source mitigated | Runtime evidence pending | Attributed-downtime semantics need consumer and runtime validation |
+| R-007 | High | Not source-controlled | Externally blocked | Main-branch protection is not active |
+| R-008 | Medium | Source mitigated | Runtime evidence pending | Bounded deployment operations still need provider-side evidence |
+| R-009 | High | Source mitigated | Runtime evidence pending | Manifest-last publication needs live migration and interruption proof |
+| R-010 | High | Source mitigated | Runtime evidence pending | Immutable ingestion replay needs Auto Loader evidence |
+| R-011 | High | Source gap open | Runtime evidence pending | Owner-run saved queries have no accepted ownership policy |
+| R-012 | High | Source mitigated | Runtime evidence pending | Target isolation needs rendered-plan and workspace proof |
+| R-013 | High | Source mitigated | Runtime evidence pending | Quality gates need live failure-persistence evidence |
+| R-014 | High | Source mitigated | Runtime evidence pending | Forecast readiness and vintages need client-facing runtime proof |
+| R-015 | High | Source mitigated | Externally blocked | Deployment and runtime identity separation needs effective-permission proof |
+| R-016 | High | Source mitigated | Externally blocked | Operational alerts and retention are defined but inactive |
+| R-017 | Medium | Source mitigated | Runtime evidence pending | Runtime compatibility baseline needs Databricks execution proof |
 
-- Priority/status: **High — Open, confirmed**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: [Local checks](../scripts/run_local_checks.sh) compile Python and run unit tests, while many existing tests—such as the [warehouse contracts](../tests/test_warehouse_model_contract.py)—assert source text rather than executing PySpark transformations or deployment helpers.
-- Required closure: Add executable transformation and helper tests for grain, keys, reconciliation, retries and failure behaviour; keep runtime checks distinct from source contracts.
-- Closure evidence: Pending.
+## External blockers
 
-## R-005 — Warehouse joins and keys can silently lose or merge records
+- **R-001** — `issue:44`, `databricks:workload-identity-federation`.
+- **R-007** — `issue:44`, `github:repository-settings-access`.
+- **R-015** — `issue:44`, `databricks:service-principal-bootstrap`.
+- **R-016** — `databricks:workspace-sql-warehouse`, `external:notification-destination`.
 
-- Priority/status: **High — Open, confirmed from implementation**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: [Warehouse construction](../notebooks/07_warehouse_model.py) uses inner dimension joins, nondeterministic machine deduplication and a daily machine key that assumes machine IDs cannot change site/model within a day.
-- Required closure: Define unknown-member handling and key grain, make dimension selection deterministic, and add executable foreign-key/count reconciliation tests.
-- Closure evidence: Pending.
+## Closure rule
 
-## R-006 — Warehouse percentages lack reconciled business bounds
+A risk may be closed only through one durable review record that includes:
 
-- Priority/status: **High — Open, confirmed with sample data**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: The [sample events](../data/sample_machine_events.csv) produce downtime above observed duration for one machine/day, and [warehouse facts](../notebooks/07_warehouse_model.py) have no percentage-bound or duration-reconciliation gate.
-- Required closure: Define downtime semantics, add warehouse invariants and reconciliation expectations, and execute edge-case transformation tests.
-- Closure evidence: Pending.
+1. the accepted source change or the verified external setting;
+2. reproducible local and, where applicable, effective runtime evidence;
+3. residual-risk and rollback implications;
+4. the named human reviewer who accepted closure;
+5. an update to both the JSON source and this rendered document.
 
-## R-007 — Main-branch checks are advisory
-
-- Priority/status: **High — Open, confirmed from GitHub settings**
-- Owner/target: Repository maintainer; before accepting production changes
-- Observed: 2026-08-14; reconfirmed 2026-08-19
-- Evidence: GitHub reports no protection for `main`; repository settings therefore do not require the CI check, pull-request review or resolved conversations.
-- Required closure: Require pull requests, CI and resolved conversations; prevent force-push and deletion; require a human approval when a second human maintainer exists.
-- Closure evidence: Pending. Repository files cannot enforce this setting.
-
-## R-008 — Deployment polling and supply-chain inputs are not bounded or immutable
-
-- Priority/status: **Medium — Open, confirmed from implementation**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14; trigger mitigation merged 2026-08-19
-- Evidence: [Grant application](../scripts/apply_uc_grants.py) polls without an overall deadline, while workflows and container definitions use mutable action, branch or floating image tags. [PR #28](https://github.com/alexmarinos87/databricks-lakehouse-telemetry-demo/pull/28) removed automatic push deployment and made apply intent explicit, reducing accidental execution but not resolving polling or supply-chain mutability.
-- Required closure: Add polling deadlines and job timeouts, pin actions, CLI setup and container inputs by immutable digest or reviewed version, and enable dependency update automation.
-- Closure evidence: Manual plan-first deployment merged in commit `359f21d`; remaining controls pending.
-
-## R-009 — Sequential multi-table overwrites can expose a mixed publication
-
-- Priority/status: **High — Open, confirmed from implementation**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: [Silver](../notebooks/02_silver_transform.py), [Gold](../notebooks/03_gold_models.py), [forecast](../notebooks/05_forecast_validation.py) and [warehouse](../notebooks/07_warehouse_model.py) outputs are overwritten table by table, so interruption can expose inconsistent versions.
-- Required closure: Define atomic or versioned publication boundaries, attach run-level manifests/reconciliation, and prove recovery from interruption in every table group.
-- Closure evidence: Pending.
-
-## R-010 — Reusing a source filename may not trigger replay
-
-- Priority/status: **High — Open, validate in Databricks**
-- Owner/target: Repository maintainer; before relying on repeatable sample loads
-- Observed: 2026-08-14; trigger behaviour changed 2026-08-19
-- Evidence: The [deploy workflow](../.github/workflows/deploy.yml) can still overwrite one source object name when an operator explicitly enables sample upload, while [bronze ingestion](../notebooks/01_bronze_ingest.py) retains Auto Loader checkpoint state. PR #28 made upload manual and default-off but did not define replay semantics.
-- Required closure: Define replay semantics, use immutable source object names or an explicit reset/backfill procedure, and test repeated upload behaviour end to end.
-- Closure evidence: Pending.
-
-## R-011 — Owner-run editable reporting queries may cross a privilege boundary
-
-- Priority/status: **High — Open, validate access model**
-- Owner/target: Repository maintainer; before analyst access is enabled
-- Observed: 2026-08-14
-- Evidence: [Query publication](../scripts/upsert_reporting_queries.py) grants engineers edit access and analysts run access to owner-executed saved queries.
-- Required closure: Confirm the trust model, separate query ownership from deployment identity, and prove editors cannot turn owner-run assets into an elevation path.
-- Closure evidence: Pending.
-
-## R-012 — Dev and prod data/state resources could collide
-
-- Priority/status: **High — Source mitigated, validate rendered targets**
-- Owner/target: Repository maintainer; before the next deployment
-- Observed: 2026-08-14; source mitigation merged 2026-08-19
-- Evidence: The previous [bundle variables and targets](../databricks.yml) inherited the same schema, volume, source, checkpoint and schema-location values while notebooks performed full overwrites. [PR #27](https://github.com/alexmarinos87/databricks-lakehouse-telemetry-demo/pull/27) added disjoint target defaults and target-specific workflow variables.
-- Required closure: Inspect effective authenticated plans and prove dev cannot read, replace or checkpoint production data; decide how any pre-existing shared state will be migrated or abandoned.
-- Closure evidence: Source configuration merged in commit `77ec43b`; rendered-plan and workspace evidence pending.
-
-## R-013 — Quality stages do not enforce warehouse or durable failure evidence
-
-- Priority/status: **High — Open, confirmed from implementation**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: [Quality checks](../notebooks/04_quality_checks.py) omit warehouse tables and can raise on a missing table before persisting accumulated results. The [Lakeflow expectations](../notebooks/06_lakeflow_quality_expectations.py) monitor with `expect_all` rather than failing or dropping invalid rows.
-- Required closure: Define enforced warehouse/reconciliation gates, persist failure evidence safely, and document which expectations monitor, drop or fail the update.
-- Closure evidence: Pending.
-
-## R-014 — Forecast validation labels are weaker than their business meaning
-
-- Priority/status: **High — Open, confirmed from implementation**
-- Owner/target: Repository maintainer; before client-facing use
-- Observed: 2026-08-14
-- Evidence: [Forecast validation](../notebooks/05_forecast_validation.py) labels row windows as days, marks a segment validated from sample count without an accuracy threshold, and overwrites previously issued forecasts.
-- Required closure: Define calendar/time semantics and accuracy thresholds, retain forecast vintages, and execute backtests that demonstrate the client-facing claim.
-- Closure evidence: Pending.
-
-## R-015 — Deployment and runtime privileges are coupled
-
-- Priority/status: **High — Open, validate least privilege**
-- Owner/target: Repository maintainer; before production readiness
-- Observed: 2026-08-14
-- Evidence: [Unity Catalog grants](../resources/access_controls.yml) give the CI principal broad create/modify/read/write capabilities, bundle resources also give it management permissions, and no explicit `run_as` separation is configured.
-- Required closure: Inspect the rendered effective owner/runtime identity, separate deployment/runtime identities where practical, minimize grants per resource and task, and test denied actions as well as required actions.
-- Closure evidence: Pending.
-
-## Closure Rule
-
-Closing a risk requires a linked pull request, reproducible test or run evidence, rollback implications, and the human reviewer who accepted closure. A repository-source mitigation is not runtime closure. Confidence from an agent is not closure. Changes to priority, status, owner or target date belong in the same durable review record.
+Agent confidence, a green source-only test, a stale pull-request reference, or an intended-but-unapplied setting is not closure.
