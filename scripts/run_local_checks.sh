@@ -16,5 +16,6 @@ if [[ -n "${CONTRACT_BASE_REF:-}" ]]; then
 fi
 
 "${PYTHON_BIN}" -m py_compile notebooks/*.py src/lakehouse_demo/*.py scripts/*.py
+"${PYTHON_BIN}" scripts/validate_engineering_risks.py
 "${PYTHON_BIN}" scripts/check_repo_contracts.py "${CONTRACT_ARGS[@]}"
 "${PYTHON_BIN}" -m unittest discover -s tests -v
