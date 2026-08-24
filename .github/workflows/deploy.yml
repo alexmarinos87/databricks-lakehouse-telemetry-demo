@@ -142,7 +142,7 @@ jobs:
 
       - name: Retain dev plan evidence
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.PLAN_EVIDENCE_DIR }}
@@ -190,7 +190,7 @@ jobs:
 
       - name: Retain dev deployment identity evidence
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-dev-apply-identity-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.IDENTITY_EVIDENCE_DIR }}
@@ -241,7 +241,7 @@ jobs:
 
       - name: Retain dev runtime identity evidence
         if: github.event.inputs.upload_sample_data == 'true' && !cancelled()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-dev-runtime-identity-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.RUNTIME_IDENTITY_EVIDENCE_DIR }}
@@ -385,7 +385,7 @@ jobs:
 
       - name: Retain prod plan evidence
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-prod-plan-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.PLAN_EVIDENCE_DIR }}
@@ -433,7 +433,7 @@ jobs:
 
       - name: Retain prod deployment identity evidence
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-prod-apply-identity-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.IDENTITY_EVIDENCE_DIR }}
@@ -484,7 +484,7 @@ jobs:
 
       - name: Retain prod runtime identity evidence
         if: github.event.inputs.upload_sample_data == 'true' && !cancelled()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: databricks-prod-runtime-identity-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.RUNTIME_IDENTITY_EVIDENCE_DIR }}
