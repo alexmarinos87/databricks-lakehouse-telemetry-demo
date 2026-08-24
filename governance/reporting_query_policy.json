@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "source_of_truth": "repository",
+  "execution_mode": "VIEWER",
+  "workspace_editing": "admin_only",
+  "owner_credentials_used_for_execution": false,
+  "ownership_transfer": "manual_workspace_admin",
+  "legacy_owner_run_migration": "set_viewer_before_permissions",
+  "permissions": {
+    "admin_group": "CAN_MANAGE",
+    "engineer_group": "CAN_RUN",
+    "analyst_group": "CAN_RUN",
+    "publisher_service_principal": "CAN_MANAGE"
+  },
+  "verification": {
+    "publisher_identity": true,
+    "query_definition": true,
+    "explicit_permissions": true,
+    "reject_unexpected_groups": true,
+    "reject_unexpected_service_principals": true
+  }
+}

@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ MODULE_PATH = REPO_ROOT / "scripts" / "upsert_reporting_queries.py"
 SPEC = importlib.util.spec_from_file_location("upsert_reporting_queries", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 upsert_reporting_queries = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = upsert_reporting_queries
 SPEC.loader.exec_module(upsert_reporting_queries)
 
 
