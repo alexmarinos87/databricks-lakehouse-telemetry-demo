@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "as_of_date": "2026-08-23",
+  "repository_evidence_boundary": "Source and local Spark evidence can mitigate a repository defect but cannot close Databricks, GitHub settings, notification, ownership, or consumer risks without independent effective-state evidence.",
+  "risks": [
+    {
+      "id": "R-001",
+      "title": "Authenticated Databricks deployment remains unproven",
+      "priority": "critical",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "externally_blocked",
+      "source_evidence": [
+        ".github/workflows/deploy.yml",
+        ".github/workflows/plan-evidence-command.yml",
+        "scripts/capture_databricks_plan.py",
+        "docs/external_bootstrap.md"
+      ],
+      "external_dependencies": [
+        "issue:44",
+        "databricks:workload-identity-federation"
+      ],
+      "residual_risk": "Repository controls can request short-lived authentication and capture a bounded plan, but no successful protected-main Databricks authentication or plan proves the configured workspace identity.",
+      "next_evidence": "Configure environment-scoped federation and identifiers, then retain a successful plan-only development run that verifies the deployment principal before any apply."
+    },
+    {
+      "id": "R-002",
+      "title": "Deterministic resource-name resolution needs workspace proof",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "databricks.yml",
+        ".github/workflows/deploy.yml",
+        "tests/test_target_isolation_contract.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Target-qualified names are deterministic in source, but a rendered plan and live post-deploy lookup have not proved that every job, pipeline, warehouse, volume and query helper resolves the intended resource.",
+      "next_evidence": "Capture authenticated development and production plans, then verify exact resource lookup after a controlled development deployment."
+    },
+    {
+      "id": "R-003",
+      "title": "Lakeflow expectations configuration needs runtime refresh evidence",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "resources/lakehouse_quality_expectations.yml",
+        "databricks.yml",
+        "tests/test_target_isolation_contract.py",
+        "notebooks/06_lakeflow_quality_expectations.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "The repository selects the expectations-capable edition and target-specific mode, but Databricks has not executed a development pipeline refresh proving effective configuration and event-log output.",
+      "next_evidence": "Run an authenticated development pipeline update and retain its effective settings, expectation metrics and event-log evidence."
+    },
+    {
+      "id": "R-004",
+      "title": "Local Spark evidence does not equal Databricks runtime evidence",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "Dockerfile.spark-ci",
+        ".github/workflows/spark-runtime.yml",
+        "scripts/run_spark_runtime_checks.sh",
+        "docs/spark_runtime_evidence.md",
+        "tests_runtime/test_spark_medallion_runtime.py",
+        "tests_runtime/test_spark_warehouse_publication_family_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Pinned local Spark execution now covers the main data path and failure controls, but it cannot prove Databricks Runtime, Delta metadata, Unity Catalog, Auto Loader or Lakeflow behaviour.",
+      "next_evidence": "Execute the accepted bundle in development and compare Databricks runtime results with the local Spark evidence boundary."
+    },
+    {
+      "id": "R-005",
+      "title": "Warehouse assignment and join semantics need live Delta evidence",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "governance/warehouse_assignment_policy.json",
+        "docs/warehouse_assignment_semantics.md",
+        "src/lakehouse_demo/spark_assignment_history.py",
+        "src/lakehouse_demo/spark_warehouse.py",
+        "tests_runtime/test_spark_assignment_history_runtime.py",
+        "tests_runtime/test_spark_warehouse_identity_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Effective-dated assignment, fail-closed unknown members and reconciliation are executable locally, but live Delta joins, schema evolution and late-arriving assignment repair are not yet evidenced.",
+      "next_evidence": "Run controlled reassignment and late-dimension scenarios in development and retain fact-count, identity and recovery evidence."
+    },
+    {
+      "id": "R-006",
+      "title": "Attributed-downtime semantics need consumer and runtime validation",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "governance/downtime_semantics.json",
+        "docs/downtime_semantics.md",
+        "src/lakehouse_demo/spark_downtime_semantics.py",
+        "src/lakehouse_demo/downtime_pipeline.py",
+        "tests_runtime/test_spark_downtime_pipeline_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "The source contract distinguishes attributed load from elapsed duration and permits evidence above one hundred percent, but deployed tables, reports and consumers have not proved the semantic version and compatibility aliases.",
+      "next_evidence": "Execute representative development data through Gold, warehouse, quality and reporting, then confirm labels, formulas, version fields and consumer interpretation."
+    },
+    {
+      "id": "R-007",
+      "title": "Main-branch protection is not active",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "not_source_controlled",
+      "runtime_status": "externally_blocked",
+      "source_evidence": [
+        "scripts/bootstrap_github_governance.py",
+        "tests/test_bootstrap_github_governance.py",
+        "docs/external_bootstrap.md"
+      ],
+      "external_dependencies": [
+        "issue:44",
+        "github:repository-settings-access"
+      ],
+      "residual_risk": "Repository bootstrap code describes the intended rules, but the branch endpoint currently reports main as unprotected, so direct or forceful changes are not prevented by active settings.",
+      "next_evidence": "Apply the reviewed ruleset with settings access and retain branch or ruleset API evidence proving pull requests, current CI, resolved conversations, linear history and force-push protection."
+    },
+    {
+      "id": "R-008",
+      "title": "Bounded deployment operations still need provider-side evidence",
+      "priority": "medium",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        ".github/workflows/deploy.yml",
+        ".github/dependabot.yml",
+        "scripts/apply_uc_grants.py",
+        "scripts/upsert_reporting_queries.py",
+        "tests/test_deployment_contract.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Subprocesses, polling, jobs and mutable inputs are bounded or pinned in source, but provider cancellation, timeout and partial-failure behaviour has not been observed against a real workspace.",
+      "next_evidence": "Exercise plan, grant and query-publication timeouts in development and retain sanitized failure and recovery evidence."
+    },
+    {
+      "id": "R-009",
+      "title": "Manifest-last publication needs live migration and interruption proof",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "src/lakehouse_demo/spark_family_publication.py",
+        "src/lakehouse_demo/spark_forecast_publication.py",
+        "notebooks/02_silver_transform.py",
+        "notebooks/03_gold_models.py",
+        "notebooks/05_forecast_validation.py",
+        "notebooks/07_warehouse_model.py",
+        "tests_runtime/test_spark_family_publication_runtime.py",
+        "tests_runtime/test_spark_gold_publication_runtime.py",
+        "tests_runtime/test_spark_forecast_publication_runtime.py",
+        "tests_runtime/test_spark_warehouse_publication_family_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Silver, Gold, forecast and warehouse now use committed-manifest visibility in source, but existing physical-table migration, Delta MERGE or DELETE, view ownership, interruption and rollback remain unproven in Databricks.",
+      "next_evidence": "Migrate a controlled development schema, inject failures between family writes, and retain selected-run, Delta-version, grant and rollback evidence for every publication family."
+    },
+    {
+      "id": "R-010",
+      "title": "Immutable ingestion replay needs Auto Loader evidence",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "src/lakehouse_demo/ingestion_identity.py",
+        "src/lakehouse_demo/spark_ingestion_identity.py",
+        "scripts/upload_ingestion_plan.py",
+        "notebooks/01_bronze_ingest.py",
+        "tests/test_ingestion_identity.py",
+        "tests_runtime/test_spark_ingestion_identity_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Content-addressed files and explicit replay IDs prevent repository-controlled overwrites, but live Files API races, Auto Loader discovery and checkpoint-preserving backfill have not been demonstrated.",
+      "next_evidence": "Upload identical, changed, late and explicit-backfill fixtures in development and retain object, checkpoint, Bronze-lineage and Silver-replay evidence."
+    },
+    {
+      "id": "R-011",
+      "title": "Owner-run saved queries have no accepted ownership policy",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_gap_open",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "scripts/upsert_reporting_queries.py",
+        "tests/test_upsert_reporting_queries.py",
+        "resources/sql_reporting.yml"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "The publisher is bounded and rejects duplicate names, but editable owner-run queries can still create an elevation path when editor trust, owner identity and migration behaviour are undefined.",
+      "next_evidence": "Implement G12 with a declared query owner, least-privilege edit and run matrix, ownership reconciliation, migration and rollback controls, then verify effective workspace permissions."
+    },
+    {
+      "id": "R-012",
+      "title": "Target isolation needs rendered-plan and workspace proof",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "databricks.yml",
+        ".github/workflows/deploy.yml",
+        "tests/test_target_isolation_contract.py",
+        "docs/deployment.md"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Development and production defaults use disjoint schemas, volumes, sources, checkpoints and metadata, but effective plans and existing shared workspace state have not been reconciled.",
+      "next_evidence": "Inspect authenticated plans and prove development cannot read, write or checkpoint production state; record the disposition of any legacy shared resources."
+    },
+    {
+      "id": "R-013",
+      "title": "Quality gates need live failure-persistence evidence",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "src/lakehouse_demo/spark_quality.py",
+        "notebooks/04_quality_checks.py",
+        "notebooks/06_lakeflow_quality_expectations.py",
+        "tests/test_quality_evidence_contract.py",
+        "tests_runtime/test_spark_quality_runtime.py",
+        "docs/runbooks/operational_health.md"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Repository checks persist bounded detailed and run-level evidence before error failure and cover warehouse semantics, but live missing-table, expectation and storage-permission failures are not evidenced.",
+      "next_evidence": "Trigger controlled development failures and prove detailed evidence persists, the workflow stops at the intended gate, and operators can diagnose and recover without sensitive output."
+    },
+    {
+      "id": "R-014",
+      "title": "Forecast readiness and vintages need client-facing runtime proof",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "src/lakehouse_demo/spark_forecast.py",
+        "src/lakehouse_demo/spark_forecast_publication.py",
+        "docs/change_briefs/forecast_readiness_thresholds.md",
+        "docs/change_briefs/versioned_forecast_publication.md",
+        "tests_runtime/test_spark_forecast_runtime.py",
+        "tests_runtime/test_spark_forecast_publication_runtime.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Calendar windows, explicit thresholds and retained committed vintages are executable locally, but approved threshold values, Delta view migration and consumer interpretation are not proven.",
+      "next_evidence": "Approve readiness thresholds, execute backtests and versioned publication in development, then retain metrics, current-vintage selection, rollback and reporting evidence."
+    },
+    {
+      "id": "R-015",
+      "title": "Deployment and runtime identity separation needs effective-permission proof",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "externally_blocked",
+      "source_evidence": [
+        "governance/runtime_identity_policy.json",
+        "config/identity_privilege_contract.json",
+        "resources/lakehouse_workflow.yml",
+        "scripts/bootstrap_runtime_identity.py",
+        "docs/runtime_identity.md",
+        "tests/test_runtime_identity_contract.py"
+      ],
+      "external_dependencies": [
+        "issue:44",
+        "databricks:service-principal-bootstrap"
+      ],
+      "residual_risk": "Source declares distinct deployment and runtime principals plus required and denied privilege contracts, but the real principals and effective permissions have not been bootstrapped or exercised.",
+      "next_evidence": "Create or bind the reviewed principals, apply least privilege, verify run_as identity and capture both successful required actions and denied deployment-only or runtime-only actions."
+    },
+    {
+      "id": "R-016",
+      "title": "Operational alerts and retention are defined but inactive",
+      "priority": "high",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "externally_blocked",
+      "source_evidence": [
+        "governance/operational_alert_policy.json",
+        "sql/operational_health.sql",
+        "scripts/validate_operational_observability.py",
+        "docs/runbooks/operational_health.md",
+        "tests/test_operational_observability.py"
+      ],
+      "external_dependencies": [
+        "databricks:workspace-sql-warehouse",
+        "external:notification-destination"
+      ],
+      "residual_risk": "Repository policy defines health queries, thresholds, owners and recovery windows, but no deployed dashboard, notification destination, acknowledgement path or retention job is active.",
+      "next_evidence": "Deploy the governed health assets, bind a named notification destination, test delivery and acknowledgement, and execute retention dry runs with recovery-window evidence."
+    },
+    {
+      "id": "R-017",
+      "title": "Runtime compatibility baseline needs Databricks execution proof",
+      "priority": "medium",
+      "owner": "repository_maintainer",
+      "lifecycle": "open",
+      "source_status": "source_mitigated",
+      "runtime_status": "runtime_evidence_pending",
+      "source_evidence": [
+        "governance/runtime_compatibility.json",
+        "docs/runtime_compatibility.md",
+        "scripts/validate_runtime_compatibility.py",
+        "Dockerfile.spark-ci",
+        "requirements-spark.txt",
+        "tests/test_runtime_compatibility.py"
+      ],
+      "external_dependencies": [],
+      "residual_risk": "Python, Java, PySpark, Py4J and Databricks Runtime are coordinated and hash-pinned in repository evidence, but the accepted matrix has not executed on the target Databricks Runtime.",
+      "next_evidence": "Run the complete development workflow on the declared Databricks Runtime and retain interpreter, Spark, Java, dependency and regression evidence before any coordinated upgrade."
+    }
+  ]
+}
