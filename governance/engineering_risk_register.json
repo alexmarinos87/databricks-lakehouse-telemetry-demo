@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "as_of_date": "2026-08-23",
+  "as_of_date": "2026-08-24",
   "repository_evidence_boundary": "Source and local Spark evidence can mitigate a repository defect but cannot close Databricks, GitHub settings, notification, ownership, or consumer risks without independent effective-state evidence.",
   "risks": [
     {
@@ -203,20 +203,23 @@
     },
     {
       "id": "R-011",
-      "title": "Owner-run saved queries have no accepted ownership policy",
+      "title": "Saved-query ownership policy needs effective workspace proof",
       "priority": "high",
       "owner": "repository_maintainer",
       "lifecycle": "open",
-      "source_status": "source_gap_open",
+      "source_status": "source_mitigated",
       "runtime_status": "runtime_evidence_pending",
       "source_evidence": [
+        "governance/reporting_query_policy.json",
         "scripts/upsert_reporting_queries.py",
+        "tests/test_reporting_query_policy.py",
         "tests/test_upsert_reporting_queries.py",
+        "docs/reporting_query_ownership.md",
         "resources/sql_reporting.yml"
       ],
       "external_dependencies": [],
-      "residual_risk": "The publisher is bounded and rejects duplicate names, but editable owner-run queries can still create an elevation path when editor trust, owner identity and migration behaviour are undefined.",
-      "next_evidence": "Implement G12 with a declared query owner, least-privilege edit and run matrix, ownership reconciliation, migration and rollback controls, then verify effective workspace permissions."
+      "residual_risk": "Repository policy now requires viewer-run queries, admin-only workspace editing, publisher identity verification, definition read-back, and least-privilege ACL read-back, but effective Databricks ownership, inherited permissions, warehouse use permissions and migration of existing queries remain unproven.",
+      "next_evidence": "Publish the governed queries in development, verify the effective viewer-run identity and ACLs, record inherited permissions, and execute the documented administrative ownership-transfer procedure before disabling an existing owner."
     },
     {
       "id": "R-012",

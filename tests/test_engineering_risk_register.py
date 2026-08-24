@@ -123,8 +123,12 @@ class EngineeringRiskRegisterTest(unittest.TestCase):
                     self.assertRegex(dependency, EXTERNAL_DEPENDENCY_PATTERN)
 
         self.assertEqual(
-            "source_gap_open",
+            "source_mitigated",
             self.by_id["R-011"]["source_status"],
+        )
+        self.assertEqual(
+            "runtime_evidence_pending",
+            self.by_id["R-011"]["runtime_status"],
         )
         self.assertEqual(
             "not_source_controlled",
@@ -162,6 +166,12 @@ class EngineeringRiskRegisterTest(unittest.TestCase):
             "R-010": {
                 "src/lakehouse_demo/ingestion_identity.py",
                 "scripts/upload_ingestion_plan.py",
+            },
+            "R-011": {
+                "governance/reporting_query_policy.json",
+                "scripts/upsert_reporting_queries.py",
+                "tests/test_reporting_query_policy.py",
+                "docs/reporting_query_ownership.md",
             },
             "R-015": {
                 "governance/runtime_identity_policy.json",
@@ -207,7 +217,14 @@ class EngineeringRiskRegisterTest(unittest.TestCase):
         self.assertNotIn("agent/", self.markdown)
 
     def test_open_source_and_external_goals_are_not_hidden(self):
-        self.assertIn("G12", self.by_id["R-011"]["next_evidence"])
+        reporting_risk = self.by_id["R-011"]
+        self.assertNotIn("G12", reporting_risk["next_evidence"])
+        self.assertIn(
+            "governance/reporting_query_policy.json",
+            reporting_risk["source_evidence"],
+        )
+        self.assertIn("effective", reporting_risk["residual_risk"].lower())
+        self.assertIn("development", reporting_risk["next_evidence"].lower())
         self.assertIn("issue:44", self.by_id["R-001"]["external_dependencies"])
         self.assertIn("issue:44", self.by_id["R-007"]["external_dependencies"])
         self.assertIn("issue:44", self.by_id["R-015"]["external_dependencies"])
