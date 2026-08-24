@@ -8,7 +8,7 @@ DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
 PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
 
 UPLOAD_ARTIFACT_SHA = (
-    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 )
 
 

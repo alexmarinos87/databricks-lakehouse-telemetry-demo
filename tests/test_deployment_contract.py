@@ -4,6 +4,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
+PLAN_COMMAND_WORKFLOW = (
+    REPO_ROOT / ".github" / "workflows" / "plan-evidence-command.yml"
+)
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SPARK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "spark-runtime.yml"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
@@ -22,7 +25,7 @@ FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_faul
 CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 SETUP_CLI_SHA = "databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121"
 UPLOAD_ARTIFACT_SHA = (
-    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 )
 PYTHON_IMAGE = (
     "python:3.11-slim@sha256:"
@@ -45,6 +48,7 @@ class DeploymentContractTest(unittest.TestCase):
             "ci": CI_WORKFLOW.read_text(encoding="utf-8"),
             "spark": SPARK_WORKFLOW.read_text(encoding="utf-8"),
             "deploy": DEPLOY_WORKFLOW.read_text(encoding="utf-8"),
+            "plan-command": PLAN_COMMAND_WORKFLOW.read_text(encoding="utf-8"),
         }
 
         for label, workflow in workflows.items():
@@ -55,9 +59,15 @@ class DeploymentContractTest(unittest.TestCase):
                 self.assertIn("runs-on: ubuntu-24.04", workflow)
 
         deploy = workflows["deploy"]
+        plan_command = workflows["plan-command"]
         self.assertIn(SETUP_CLI_SHA, deploy)
-        self.assertIn(UPLOAD_ARTIFACT_SHA, deploy)
+        self.assertIn(SETUP_CLI_SHA, plan_command)
+        self.assertEqual(6, deploy.count(UPLOAD_ARTIFACT_SHA))
+        self.assertEqual(1, plan_command.count(UPLOAD_ARTIFACT_SHA))
+        self.assertNotIn("actions/upload-artifact@v", deploy)
+        self.assertNotIn("actions/upload-artifact@v", plan_command)
         self.assertNotIn("databricks/setup-cli@main", deploy)
+        self.assertNotIn("databricks/setup-cli@main", plan_command)
         self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
 
     def test_dependency_updates_cover_actions_docker_and_python(self):
