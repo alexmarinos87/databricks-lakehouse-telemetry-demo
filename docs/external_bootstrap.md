@@ -123,9 +123,9 @@ After the scripts verify successfully, add this exact comment to issue #44:
 /databricks-plan dev
 ```
 
-Only a repository-owner comment on issue #44 is accepted. The workflow checks
-out accepted `main` and runs a read-only external-readiness preflight before
-downloading the Databricks CLI or invoking any Databricks command. The preflight
+Only a repository-owner comment on issue #44 is accepted. The workflow checks out accepted `main`
+and runs a read-only external-readiness preflight before downloading the Databricks CLI
+or invoking any Databricks command. The preflight
 verifies all of the following in one pass:
 
 - the checked-out commit still matches the current `main` branch head;
