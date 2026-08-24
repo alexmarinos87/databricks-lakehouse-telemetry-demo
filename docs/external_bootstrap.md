@@ -124,9 +124,30 @@ After the scripts verify successfully, add this exact comment to issue #44:
 ```
 
 Only a repository-owner comment on issue #44 is accepted. The workflow checks
-out accepted `main`, requests the `dev-plan` OIDC identity, runs plan mode only,
-retains bounded evidence for 14 days, and posts the run URL, artifact name, and
-accepted commit back to the issue.
+out accepted `main` and runs a read-only external-readiness preflight before
+downloading the Databricks CLI or invoking any Databricks command. The preflight
+verifies all of the following in one pass:
+
+- the checked-out commit still matches the current `main` branch head;
+- the workflow event SHA matches the checked-out commit and repository identity;
+- the branch-state token is sent only to `https://api.github.com`;
+- GitHub reports `main` as protected;
+- the required `validate` status context is active;
+- the job runs with GitHub OIDC context and `DATABRICKS_AUTH_TYPE=github-oidc`;
+- `DATABRICKS_HOST` and `DATABRICKS_CLIENT_ID` are present and structurally valid;
+- no static `DATABRICKS_CLIENT_SECRET` is mapped.
+
+The preflight writes `external-readiness.json` and
+`external-readiness-summary.md`. These files contain booleans, blocker
+categories, commit identities, and fingerprints rather than raw workspace hosts,
+client IDs, request tokens, or provider diagnostics. Every independent blocker
+is reported in the same run instead of stopping at the first missing value.
+
+When readiness is blocked, the workflow uploads the sanitized evidence, posts
+the blocker categories to issue #44, skips Databricks CLI installation, and
+fails the gate. When readiness is ready, the workflow requests the `dev-plan`
+OIDC identity, runs plan mode only, retains bounded evidence for 14 days, and
+posts the run URL, artifact name, and accepted commit back to the issue.
 
 The command does not set `apply_changes=true`, deploy a bundle, upload source
 data, run the lakehouse workflow, execute SQL grants, or activate a schedule.
