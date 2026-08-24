@@ -1,6 +1,6 @@
 # Engineering Risk Register
 
-**Evidence reviewed:** 2026-08-23
+**Evidence reviewed:** 2026-08-24
 
 Source and local Spark evidence can mitigate a repository defect but cannot close Databricks, GitHub settings, notification, ownership, or consumer risks without independent effective-state evidence.
 
@@ -33,7 +33,7 @@ The complete residual-risk statements, current evidence paths, external dependen
 | R-008 | Medium | Source mitigated | Runtime evidence pending | Bounded deployment operations still need provider-side evidence |
 | R-009 | High | Source mitigated | Runtime evidence pending | Manifest-last publication needs live migration and interruption proof |
 | R-010 | High | Source mitigated | Runtime evidence pending | Immutable ingestion replay needs Auto Loader evidence |
-| R-011 | High | Source gap open | Runtime evidence pending | Owner-run saved queries have no accepted ownership policy |
+| R-011 | High | Source mitigated | Runtime evidence pending | Saved-query ownership policy needs effective workspace proof |
 | R-012 | High | Source mitigated | Runtime evidence pending | Target isolation needs rendered-plan and workspace proof |
 | R-013 | High | Source mitigated | Runtime evidence pending | Quality gates need live failure-persistence evidence |
 | R-014 | High | Source mitigated | Runtime evidence pending | Forecast readiness and vintages need client-facing runtime proof |
@@ -57,7 +57,7 @@ The JSON register contains the complete evidence set. This index keeps one curre
 | R-008 | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) |
 | R-009 | [`src/lakehouse_demo/spark_family_publication.py`](../src/lakehouse_demo/spark_family_publication.py) |
 | R-010 | [`src/lakehouse_demo/ingestion_identity.py`](../src/lakehouse_demo/ingestion_identity.py) |
-| R-011 | [`scripts/upsert_reporting_queries.py`](../scripts/upsert_reporting_queries.py) |
+| R-011 | [`governance/reporting_query_policy.json`](../governance/reporting_query_policy.json) |
 | R-012 | [`databricks.yml`](../databricks.yml) |
 | R-013 | [`src/lakehouse_demo/spark_quality.py`](../src/lakehouse_demo/spark_quality.py) |
 | R-014 | [`src/lakehouse_demo/spark_forecast.py`](../src/lakehouse_demo/spark_forecast.py) |
