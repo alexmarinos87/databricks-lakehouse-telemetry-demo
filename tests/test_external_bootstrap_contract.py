@@ -22,6 +22,30 @@ class TestExternalBootstrapContract(unittest.TestCase):
         self.assertIn("https://token.actions.githubusercontent.com", source)
         self.assertNotIn("DATABRICKS_TOKEN", source)
 
+    def test_github_governance_verifier_is_read_only_and_sanitized(self):
+        source = (ROOT / "scripts/verify_github_governance.py").read_text()
+        required_tokens = [
+            'method="GET"',
+            'os.environ.get("GITHUB_ADMIN_TOKEN", "")',
+            "github-governance-verification.json",
+            "DATABRICKS_RUNTIME_CLIENT_ID",
+            "DATABRICKS_CLIENT_SECRET",
+            "required_conversation_resolution",
+            "main_branch_is_unprotected",
+            "environment_branch_scope_drift",
+            "static_client_secret_present",
+            "MAX_PAGES",
+            "inventory_is_truncated",
+        ]
+        for token in required_tokens:
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+        self.assertNotIn('parser.add_argument("--token"', source)
+        self.assertNotIn('method="POST"', source)
+        self.assertNotIn('method="PUT"', source)
+        self.assertNotIn('method="PATCH"', source)
+        self.assertNotIn('method="DELETE"', source)
+
     def test_plan_command_is_owner_only_plan_only_and_readiness_gated(self):
         workflow = (
             ROOT / ".github" / "workflows" / "plan-evidence-command.yml"
@@ -76,6 +100,11 @@ class TestExternalBootstrapContract(unittest.TestCase):
             "apply_changes",
             "external-readiness.json",
             "before downloading the Databricks CLI",
+            "scripts/verify_github_governance.py",
+            ".bootstrap/runtime-identity.json",
+            "github-governance-verification.json",
+            "GET requests only",
+            "status: verified",
         ]
         for token in required_tokens:
             with self.subTest(token=token):
