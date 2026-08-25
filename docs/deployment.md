@@ -13,15 +13,17 @@ Manual dispatch, apply_changes=false
   -> GitHub OIDC token request
   -> Databricks service-principal identity preflight
   -> bounded bundle validate
-  -> bounded bundle plan
-  -> retained exact-commit evidence
+  -> bounded structured bundle plan
+  -> retained exact-commit JSON evidence
   -> human plan review
 
 Manual dispatch, apply_changes=true
   -> the same authenticated plan path
   -> environment approval
-  -> fresh identity preflight
-  -> bundle deploy
+  -> download the same-run plan artifact
+  -> verify target, commit, run, identity, shape and hashes
+  -> fresh apply-identity preflight
+  -> bundle deploy --plan <reviewed bundle-plan.json>
   -> optional immutable sample upload
   -> optional workflow execution
   -> relation grants and saved-query publication
@@ -65,7 +67,7 @@ The four Databricks plan/apply jobs use Databricks unified authentication:
 DATABRICKS_AUTH_TYPE=github-oidc
 ```
 
-Each of those jobs has only these additional GitHub permissions:
+Plan jobs have:
 
 ```yaml
 permissions:
@@ -73,7 +75,16 @@ permissions:
   id-token: write
 ```
 
-`id-token: write` permits a short-lived GitHub OIDC token request. It does not grant repository write access. Databricks remains responsible for accepting the token and mapping it to the configured service principal.
+Apply jobs additionally have read access to the same workflow run's artifact:
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+```
+
+`id-token: write` permits a short-lived GitHub OIDC token request. It does not grant repository write access. `actions: read` is used only to download the exact plan artifact produced earlier in the same run. Databricks remains responsible for accepting the token and mapping it to the configured service principal.
 
 Configure these values independently in `dev-plan`, `prod-plan`, `dev`, and `prod`:
 
@@ -118,15 +129,38 @@ DATABRICKS_CI_SERVICE_PRINCIPAL=lakehouse-demo-ci
 2. Rejects a mapped static client secret.
 3. Calls `databricks current-user me` with a finite deadline.
 4. Verifies that the authenticated application ID matches `DATABRICKS_CLIENT_ID`.
-5. Runs bounded `bundle validate` and `bundle plan` commands for the selected target.
-6. Writes successful output, output hashes, GitHub run provenance, and identity fingerprints to a bounded evidence directory.
-7. Stores only byte counts and hashes when a failed provider response may contain sensitive information.
+5. Runs bounded `bundle validate` and `bundle plan --output json` commands for the selected target.
+6. Validates that the plan is a JSON object and retains the exact provider bytes as `bundle-plan.json`.
+7. Writes output hashes, GitHub run provenance, and identity fingerprints to a bounded evidence directory.
+8. Stores only byte counts and hashes when a failed provider response may contain sensitive information.
+
+The bundle explicitly selects the direct deployment engine and constrains the supported Databricks CLI range. A target previously managed by the Terraform engine may require a separately reviewed deployment-state migration before its first direct-engine apply.
 
 Plan jobs publish a step summary and retain the evidence directory for 14 days. Artifact names include the target, exact Git commit, and workflow attempt.
 
-A successful artifact proves that the selected commit authenticated as the configured service principal and produced validation and plan output at that time. It does not prove that external workspace state remained unchanged, that apply will succeed, or that a plan is safe without human review.
+A successful artifact proves that the selected commit authenticated as the configured plan service principal and produced validation plus a structured plan at that time. It does not prove that the plan is safe without human review or that mutable external state will remain compatible until apply.
 
-The evidence does not cryptographically bind mutable Databricks state after planning. The same-run plan, environment approval, and fresh apply identity preflight remain necessary controls.
+## Reviewed Plan Replay
+
+Apply jobs use `scripts/verify_bundle_plan_artifact.py` before installing the Databricks CLI. The verifier downloads no data itself and makes no network request. It accepts only the exact bounded plan-artifact inventory and verifies:
+
+- the expected repository, `refs/heads/main`, commit, workflow run, run attempt, and target;
+- successful schema-version-2 plan evidence;
+- GitHub OIDC authentication and service-principal identity fingerprints;
+- validation and plan filenames, formats, byte counts, and SHA-256 digests;
+- JSON-object shape for `bundle-plan.json`;
+- optional warning files only when their metadata matches;
+- regular files only, with no symlinks, nested directories, or unexpected content.
+
+The apply command is:
+
+```text
+databricks bundle deploy --target <target> --plan <artifact>/bundle-plan.json
+```
+
+The direct engine therefore consumes the exact reviewed plan instead of recalculating one in the apply job. The apply job still performs a fresh identity preflight because the plan and apply environments intentionally may use different service principals.
+
+Exact plan replay does not freeze Databricks state or make provider updates transactional. A stale plan may be rejected, and a failed apply may leave partial external changes. Same-run provenance, environment approval, plan verification, fresh identity verification, and post-apply reconciliation remain separate controls.
 
 ## Target Isolation Contract
 
@@ -138,7 +172,7 @@ The evidence does not cryptographically bind mutable Databricks state after plan
 | Direct ADLS root | `lakehouse_demo/dev/` | `lakehouse_demo/prod/` |
 | Pipeline mode | Development | Production |
 
-The workflow supplies the matching target-specific catalog, schema, and volume to the plan helper, bundle deploy, workflow run, grants, immutable uploader, and query publisher.
+The workflow supplies the matching target-specific catalog, schema, and volume to the plan helper, reviewed-plan deploy, workflow run, grants, immutable uploader, and query publisher.
 
 Static repository checks verify configuration intent. They do not prove the effective Databricks plan, existing resource state, effective permissions, Files API behavior, or successful runtime execution. Review the completed `bundle validate` and `bundle plan` evidence for both targets before first apply and after every material deployment change.
 
@@ -202,16 +236,17 @@ An administrator must bootstrap the service principal with the minimum rights re
 1. Open `Deploy Databricks Bundle`.
 2. Select the exact `main` commit to review.
 3. Select `dev` or `prod`.
-4. Leave `apply_changes` disabled.
-5. Review the completed `bundle validate` and `bundle plan` artifact and summary.
+4. Leave `apply_changes` disabled for an initial evidence-only run.
+5. Review the completed `bundle validate` and structured `bundle plan` artifact and summary.
 6. Resolve unexpected creates, replacements, deletions, permissions, or target-isolation changes.
 7. Re-run the accepted commit and target with `apply_changes` enabled.
 8. Review the fresh same-run plan before granting environment approval.
-9. Optionally select an immutable sample fixture and ingestion mode.
-10. Optionally run the lakehouse workflow.
-11. Grant environment approval only when the exact plan is acceptable.
+9. Grant environment approval only when the exact plan is acceptable.
+10. The apply job downloads and verifies that same-run artifact, performs a fresh identity preflight, and deploys with `--plan`.
+11. Optionally select an immutable sample fixture and ingestion mode.
+12. Optionally run the lakehouse workflow.
 
-An apply-enabled dispatch always runs its authenticated plan job first. The deploy job has a `needs` dependency on that successful job, keeping the selected target, commit, plan, and approval request in the same workflow run.
+An apply-enabled dispatch always runs its authenticated plan job first. The deploy job has a `needs` dependency on that successful job, and its downloaded artifact name plus internal evidence bind target, commit, workflow run, attempt, and plan bytes.
 
 ## Failure And Recovery
 
@@ -219,6 +254,8 @@ An apply-enabled dispatch always runs its authenticated plan job first. The depl
 - Identity, validation, plan, grant, query-publication, and upload child processes have finite deadlines.
 - Failed plan output is represented by bounded metadata rather than echoed into the broad job summary.
 - A failed plan blocks its deploy job.
+- A missing, substituted, malformed, stale, cross-target, or hash-mismatched plan artifact blocks deploy before Databricks CLI installation.
+- A stale reviewed plan may be rejected by Databricks and must be regenerated rather than bypassed.
 - A failed apply may leave partial Databricks changes; reconcile against the accepted plan and use a reviewed forward fix or bundle rollback.
 - Immutable upload, workflow execution, grants, and query publication are distinct post-deploy operations and may fail after the bundle itself succeeds.
 - Forecast history migration and manifest-last recovery follow `docs/runbooks/forecast_publication_recovery.md`.

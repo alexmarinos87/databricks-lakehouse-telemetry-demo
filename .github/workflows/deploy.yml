@@ -159,6 +159,7 @@ jobs:
     timeout-minutes: 30
     environment: dev
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -169,6 +170,7 @@ jobs:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_DEV_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_DEV_SCHEMA || 'lakehouse_demo_dev' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_DEV_VOLUME || 'lakehouse_demo_dev_files' }}
+      PLAN_INPUT_DIR: input/databricks-plan/dev
       IDENTITY_EVIDENCE_DIR: output/databricks-identity/dev
       RUNTIME_IDENTITY_EVIDENCE_DIR: output/databricks-identity/dev-runtime
     steps:
@@ -176,6 +178,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+
+      - name: Download reviewed dev plan evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.PLAN_INPUT_DIR }}
+
+      - name: Verify reviewed dev plan artifact
+        run: |
+          python3 scripts/verify_bundle_plan_artifact.py \
+            --artifact-dir "${PLAN_INPUT_DIR}" \
+            --expected-target dev \
+            --expected-repository "${GITHUB_REPOSITORY}" \
+            --expected-ref "${GITHUB_REF}" \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-run-id "${GITHUB_RUN_ID}" \
+            --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
@@ -199,9 +218,10 @@ jobs:
           compression-level: 6
           overwrite: false
 
-      - name: Deploy dev bundle
+      - name: Deploy dev bundle from reviewed plan
         run: |
           databricks bundle deploy -t dev \
+            --plan "${PLAN_INPUT_DIR}/bundle-plan.json" \
             --var="catalog=${BUNDLE_CATALOG}" \
             --var="schema=${BUNDLE_SCHEMA}" \
             --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
@@ -402,6 +422,7 @@ jobs:
     timeout-minutes: 30
     environment: prod
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -412,6 +433,7 @@ jobs:
       BUNDLE_CATALOG: ${{ vars.DATABRICKS_PROD_CATALOG || vars.DATABRICKS_CATALOG || 'main' }}
       BUNDLE_SCHEMA: ${{ vars.DATABRICKS_PROD_SCHEMA || 'lakehouse_demo_prod' }}
       UNITY_CATALOG_VOLUME: ${{ vars.DATABRICKS_PROD_VOLUME || 'lakehouse_demo_prod_files' }}
+      PLAN_INPUT_DIR: input/databricks-plan/prod
       IDENTITY_EVIDENCE_DIR: output/databricks-identity/prod
       RUNTIME_IDENTITY_EVIDENCE_DIR: output/databricks-identity/prod-runtime
     steps:
@@ -419,6 +441,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+
+      - name: Download reviewed prod plan evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: databricks-prod-plan-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.PLAN_INPUT_DIR }}
+
+      - name: Verify reviewed prod plan artifact
+        run: |
+          python3 scripts/verify_bundle_plan_artifact.py \
+            --artifact-dir "${PLAN_INPUT_DIR}" \
+            --expected-target prod \
+            --expected-repository "${GITHUB_REPOSITORY}" \
+            --expected-ref "${GITHUB_REF}" \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-run-id "${GITHUB_RUN_ID}" \
+            --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
@@ -442,9 +481,10 @@ jobs:
           compression-level: 6
           overwrite: false
 
-      - name: Deploy prod bundle
+      - name: Deploy prod bundle from reviewed plan
         run: |
           databricks bundle deploy -t prod \
+            --plan "${PLAN_INPUT_DIR}/bundle-plan.json" \
             --var="catalog=${BUNDLE_CATALOG}" \
             --var="schema=${BUNDLE_SCHEMA}" \
             --var="unity_catalog_volume=${UNITY_CATALOG_VOLUME}" \
