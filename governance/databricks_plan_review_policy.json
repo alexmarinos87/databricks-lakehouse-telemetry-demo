@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "required_plan_version": 2,
+  "targets": {
+    "dev": {
+      "allow_delete": false,
+      "allow_recreate": false,
+      "allow_gone_delete": true,
+      "forbidden_fragments": [
+        "lakehouse_demo_prod",
+        "/prod/",
+        "prod-",
+        "prod_"
+      ],
+      "max_create": 100,
+      "max_change": 100,
+      "max_delete": 0,
+      "max_recreate": 0,
+      "max_gone_delete": 25,
+      "max_permission_sensitive_resources": 25
+    },
+    "prod": {
+      "allow_delete": false,
+      "allow_recreate": false,
+      "allow_gone_delete": true,
+      "forbidden_fragments": [
+        "lakehouse_demo_dev",
+        "/dev/",
+        "dev-",
+        "dev_"
+      ],
+      "max_create": 100,
+      "max_change": 100,
+      "max_delete": 0,
+      "max_recreate": 0,
+      "max_gone_delete": 25,
+      "max_permission_sensitive_resources": 25
+    }
+  }
+}
