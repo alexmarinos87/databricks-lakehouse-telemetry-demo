@@ -60,16 +60,23 @@ def capture_bundle_stage(stage: str, target: str, bundle_variables: Sequence[str
         if not isinstance(parsed, dict):
             raise EvidenceError("plan", "unexpected_json_shape", stdout=completed.stdout,
                                 stderr=completed.stderr)
-        output_file, output_format = PLAN_OUTPUT_FILE, "json"
+        result: dict[str, Any] = {
+            "status": "succeeded",
+            "format": "json",
+            "output_file": PLAN_OUTPUT_FILE,
+            "output_bytes": stdout_bytes,
+            "output_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
+            "top_level_type": "object",
+        }
     else:
-        output_file, output_format = VALIDATION_OUTPUT_FILE, "text"
-    write_text_atomic(output_directory / output_file, completed.stdout)
-    encoded = completed.stdout.encode()
-    result: dict[str, Any] = {"status": "succeeded", "format": output_format,
-                              "output_file": output_file, "output_bytes": stdout_bytes,
-                              "output_sha256": hashlib.sha256(encoded).hexdigest()}
-    if stage == "plan":
-        result["top_level_type"] = "object"
+        result = {
+            "status": "succeeded",
+            "format": "text",
+            "output_file": VALIDATION_OUTPUT_FILE,
+            "output_bytes": stdout_bytes,
+            "output_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
+        }
+    write_text_atomic(output_directory / result["output_file"], completed.stdout)
     _warnings(output_directory, stage, completed.stderr, result)
     return result
 
