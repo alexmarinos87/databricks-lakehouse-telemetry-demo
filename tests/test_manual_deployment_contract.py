@@ -5,6 +5,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
+APPLY_REVIEW_BRIEF = (
+    REPO_ROOT / "docs" / "change_briefs" / "require_plan_review_before_apply.md"
+)
 PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
 PLAN_CORE = REPO_ROOT / "scripts" / "plan_evidence" / "core.py"
 PLAN_CAPTURE = REPO_ROOT / "scripts" / "plan_evidence" / "capture.py"
@@ -159,6 +162,14 @@ class ManualDeploymentContractTest(unittest.TestCase):
             "MAX_PLAN_BYTES",
             "output_sha256",
             "github-oidc",
+            "databricks-plan-review.json",
+            "databricks-plan-review.md",
+            "plan_review_not_accepted",
+            "plan_review_recomputation_not_accepted",
+            "plan_review_recomputation_mismatch",
+            "load_plan_review_policy",
+            "recompute_plan_review",
+            "render_plan_review_summary",
         ]
         for token in required:
             with self.subTest(token=token):
@@ -193,11 +204,18 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn('command.extend(["--output", "json"])', script)
         self.assertIn("json.loads(completed.stdout)", script)
         self.assertIn('"format": "json"', script)
+        self.assertIn("capture_plan_review", script)
+        self.assertIn("databricks-plan-review.json", script)
         self.assertNotIn("check_output", script)
         self.assertNotIn("check_call", script)
 
     def test_documentation_requires_reviewed_plan_replay_and_approval(self):
-        documentation = DEPLOYMENT_DOC.read_text(encoding="utf-8")
+        documentation = "\n".join(
+            (
+                DEPLOYMENT_DOC.read_text(encoding="utf-8"),
+                APPLY_REVIEW_BRIEF.read_text(encoding="utf-8"),
+            )
+        )
 
         self.assertIn("A merge to `main` never deploys", documentation)
         self.assertIn("Leave `apply_changes` disabled", documentation)
@@ -213,6 +231,9 @@ class ManualDeploymentContractTest(unittest.TestCase):
             documentation,
         )
         self.assertIn("scripts/verify_bundle_plan_artifact.py", documentation)
+        self.assertIn("databricks-plan-review.json", documentation)
+        self.assertIn("independently recomputes", documentation)
+        self.assertIn("current repository policy", documentation)
         self.assertIn(
             "databricks bundle deploy --target <target> --plan", documentation
         )
