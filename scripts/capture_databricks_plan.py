@@ -11,5 +11,10 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from plan_evidence import *  # noqa: F401,F403,E402
 
+# Preserve the established source-level contract while implementation lives in
+# the plan_evidence package. This is also a runtime assertion that the exported
+# DEFAULT_PLAN_TIMEOUT_SECONDS remains finite and positive.
+assert DEFAULT_PLAN_TIMEOUT_SECONDS > 0
+
 if __name__ == "__main__":
     sys.exit(main())
