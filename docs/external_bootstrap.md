@@ -2,7 +2,8 @@
 
 The repository has fail-closed OIDC plan/apply workflows, but GitHub repository
 settings and Databricks account federation policies live outside the Git tree.
-This runbook provides dry-run-first automation for those control planes.
+This runbook provides dry-run-first automation and independent read-only
+verification for those control planes.
 
 ## Sensitive-value boundary
 
@@ -38,8 +39,42 @@ Create `.bootstrap/github-governance.json`:
 }
 ```
 
-Create `.bootstrap/databricks-federation.json` using the matching application
-IDs and Databricks numeric service-principal IDs:
+Create `.bootstrap/runtime-identity.json` using the same deployment application
+IDs and distinct runtime identities:
+
+```json
+{
+  "repository": "alexmarinos87/databricks-lakehouse-telemetry-demo",
+  "account_host": "https://accounts.cloud.databricks.com",
+  "account_id": "<account-id>",
+  "audience": "https://github.com/alexmarinos87",
+  "environments": {
+    "dev-plan": {
+      "deployment_client_id": "<dev-plan-app-id>",
+      "runtime_client_id": "<dev-runtime-app-id>",
+      "runtime_numeric_id": "<dev-runtime-numeric-id>"
+    },
+    "prod-plan": {
+      "deployment_client_id": "<prod-plan-app-id>",
+      "runtime_client_id": "<prod-runtime-app-id>",
+      "runtime_numeric_id": "<prod-runtime-numeric-id>"
+    },
+    "dev": {
+      "deployment_client_id": "<dev-apply-app-id>",
+      "runtime_client_id": "<dev-runtime-app-id>",
+      "runtime_numeric_id": "<dev-runtime-numeric-id>"
+    },
+    "prod": {
+      "deployment_client_id": "<prod-apply-app-id>",
+      "runtime_client_id": "<prod-runtime-app-id>",
+      "runtime_numeric_id": "<prod-runtime-numeric-id>"
+    }
+  }
+}
+```
+
+Create `.bootstrap/databricks-federation.json` using the matching deployment
+application IDs and Databricks numeric service-principal IDs:
 
 ```json
 {
@@ -67,6 +102,9 @@ reuses a principal.
 python3 scripts/bootstrap_github_governance.py \
   --config .bootstrap/github-governance.json
 
+python3 scripts/bootstrap_runtime_identity.py \
+  --config .bootstrap/runtime-identity.json
+
 python3 scripts/bootstrap_databricks_oidc.py \
   --config .bootstrap/databricks-federation.json
 ```
@@ -84,7 +122,10 @@ python3 scripts/bootstrap_github_governance.py \
   --config .bootstrap/github-governance.json \
   --apply \
   --required-approvals 0
-unset GITHUB_ADMIN_TOKEN
+
+python3 scripts/bootstrap_runtime_identity.py \
+  --config .bootstrap/runtime-identity.json \
+  --apply-github
 ```
 
 The zero-approval setting preserves a sole-maintainer workflow while still
@@ -92,9 +133,46 @@ requiring pull requests, current `validate` status, resolved conversations,
 linear history, administrator enforcement, and blocking force pushes and branch
 deletion. Raise it to one when an independent maintainer is available.
 
-The script also creates `dev-plan`, `prod-plan`, `dev`, and `prod`, restricts
-each to `main`, and sets non-password `DATABRICKS_HOST` and
-`DATABRICKS_CLIENT_ID` environment variables.
+The scripts create `dev-plan`, `prod-plan`, `dev`, and `prod`, restrict each to
+`main`, and set non-password `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and
+`DATABRICKS_RUNTIME_CLIENT_ID` environment variables.
+
+### Verify effective GitHub state
+
+Do not treat successful write requests as closure evidence. While the one-time
+administrative token is still available, run the independent read-only verifier:
+
+```bash
+python3 scripts/verify_github_governance.py \
+  --github-config .bootstrap/github-governance.json \
+  --runtime-config .bootstrap/runtime-identity.json \
+  --output-dir .bootstrap/evidence/github-governance \
+  --required-approvals 0
+```
+
+The verifier performs GET requests only. It compares effective repository merge
+settings, the branch endpoint, full `main` protection, all four environment
+branch policies, deployment and runtime variables, and the absence of
+`DATABRICKS_CLIENT_SECRET` as either a variable or secret.
+
+It writes:
+
+```text
+.bootstrap/evidence/github-governance/github-governance-verification.json
+.bootstrap/evidence/github-governance/github-governance-verification.md
+```
+
+The evidence contains stable drift categories and SHA-256 fingerprints rather
+than workspace hosts, deployment client IDs, runtime client IDs, tokens, or
+secret values. A non-zero result is evidence of incomplete or drifting settings;
+do not weaken the expected policy merely to make verification pass.
+
+Only after the verifier records `status: verified` should the one-time token be
+removed:
+
+```bash
+unset GITHUB_ADMIN_TOKEN
+```
 
 Re-query `main` and confirm `protected: true` before continuing.
 
@@ -104,12 +182,16 @@ Re-query `main` and confirm `protected: true` before continuing.
 python3 scripts/bootstrap_databricks_oidc.py \
   --config .bootstrap/databricks-federation.json \
   --apply
+
+python3 scripts/bootstrap_runtime_identity.py \
+  --config .bootstrap/runtime-identity.json \
+  --apply-databricks
 ```
 
-The script verifies or creates exact GitHub environment subjects under the
-GitHub Actions issuer. It fails when an existing policy for a subject has a
-different audience or issuer. It does not grant workspace-admin or account-admin
-rights to the deployment principals.
+The scripts verify or create exact GitHub environment subjects under the GitHub
+Actions issuer. They fail when an existing policy for a subject has a different
+audience or issuer. They do not grant workspace-admin or account-admin rights
+to the deployment or runtime principals.
 
 Bootstrap the minimum workspace and Unity Catalog permissions separately and
 record both successful required actions and denied out-of-scope actions in issue
