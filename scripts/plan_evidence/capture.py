@@ -10,6 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from review_databricks_plan import (
+    ReviewError as PlanReviewError,
+    load_policy as load_plan_review_policy,
+    parse_plan as parse_plan_review,
+    review_plan as evaluate_plan_review,
+    write_evidence as write_plan_review_evidence,
+)
+
 from .core import (
     ALLOWED_TARGETS, DEFAULT_IDENTITY_TIMEOUT_SECONDS, DEFAULT_PLAN_TIMEOUT_SECONDS,
     DEFAULT_VALIDATE_TIMEOUT_SECONDS, EvidenceError, MAX_CAPTURE_BYTES,
@@ -18,8 +26,15 @@ from .core import (
     validate_environment, verify_identity, write_json_atomic, write_text_atomic,
 )
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+PLAN_REVIEW_POLICY = REPOSITORY_ROOT / "governance" / "databricks_plan_review_policy.json"
+PLAN_REVIEW_JSON = "databricks-plan-review.json"
+PLAN_REVIEW_MARKDOWN = "databricks-plan-review.md"
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 def _bounded(stage: str, stdout: str, stderr: str) -> tuple[int, int]:
     stdout_bytes = len(stdout.encode("utf-8", errors="replace"))
@@ -29,6 +44,7 @@ def _bounded(stage: str, stdout: str, stderr: str) -> tuple[int, int]:
                             stdout=stdout, stderr=stderr)
     return stdout_bytes, stderr_bytes
 
+
 def _warnings(directory: Path, stage: str, stderr: str, result: dict[str, Any]) -> None:
     if not stderr:
         return
@@ -37,6 +53,7 @@ def _warnings(directory: Path, stage: str, stderr: str, result: dict[str, Any]) 
     encoded = stderr.encode()
     result.update({"warnings_file": name, "warnings_bytes": len(encoded),
                    "warnings_sha256": hashlib.sha256(encoded).hexdigest()})
+
 
 def capture_bundle_stage(stage: str, target: str, bundle_variables: Sequence[str],
                          output_directory: Path, environment: Mapping[str, str], *,
@@ -80,6 +97,39 @@ def capture_bundle_stage(stage: str, target: str, bundle_variables: Sequence[str
     _warnings(output_directory, stage, completed.stderr, result)
     return result
 
+
+def capture_plan_review(*, target: str, source_commit: str,
+                        output_directory: Path) -> dict[str, Any]:
+    """Evaluate and retain the repository policy decision for one captured plan."""
+
+    try:
+        policy = load_plan_review_policy(PLAN_REVIEW_POLICY, target)
+        parsed = parse_plan_review(output_directory / PLAN_OUTPUT_FILE, policy=policy)
+        review = evaluate_plan_review(
+            parsed,
+            policy=policy,
+            target=target,
+            source_commit=source_commit,
+        )
+        write_plan_review_evidence(output_directory, review)
+    except PlanReviewError as error:
+        raise EvidenceError("review", error.category) from None
+
+    metadata = {
+        "status": review["status"],
+        "schema_version": review["schema_version"],
+        "policy_file": "governance/databricks_plan_review_policy.json",
+        "json_file": PLAN_REVIEW_JSON,
+        "markdown_file": PLAN_REVIEW_MARKDOWN,
+        "plan_sha256": review["plan_sha256"],
+        "resource_count": review["resource_count"],
+        "finding_count": len(review["findings"]),
+    }
+    if review["status"] != "accepted":
+        raise EvidenceError("review", "plan_blocked", review=metadata)
+    return metadata
+
+
 def _base(environment: Mapping[str, str], target: str, mode: str) -> dict[str, Any]:
     return {"schema_version": 2, "status": "started", "mode": mode,
             "target": target, "generated_at_utc": utc_now(),
@@ -92,6 +142,7 @@ def _base(environment: Mapping[str, str], target: str, mode: str) -> dict[str, A
                 "configured_client_id_fingerprint": fingerprint(
                     environment.get("DATABRICKS_CLIENT_ID"))}}
 
+
 def _record_failure(evidence: dict[str, Any], error: EvidenceError) -> None:
     failure: dict[str, Any] = {"stage": error.stage, "category": error.category}
     if error.exit_code is not None:
@@ -100,8 +151,12 @@ def _record_failure(evidence: dict[str, Any], error: EvidenceError) -> None:
         failure["stdout"] = text_metadata(error.stdout)
     if error.stderr:
         failure["stderr"] = text_metadata(error.stderr)
+    review = getattr(error, "review", None)
+    if isinstance(review, dict):
+        evidence["review"] = review
     evidence.update({"status": "failed", "failure": failure,
                      "completed_at_utc": utc_now()})
+
 
 def render_summary(evidence: Mapping[str, Any]) -> str:
     github, auth = evidence.get("github", {}), evidence.get("authentication", {})
@@ -122,13 +177,19 @@ def render_summary(evidence: Mapping[str, Any]) -> str:
             lines.append(f"- {stage.title()}: **{result.get('status', 'unknown')}**")
             if result.get("output_file"):
                 lines.append(f"  - Output: `{result['output_file']}` ({result.get('format')}, `{result.get('output_sha256', '')}`)")
+    review = evidence.get("review")
+    if isinstance(review, dict):
+        lines.append(f"- Policy review: **{review.get('status', 'unknown')}**")
+        lines.append(f"  - Evidence: `{review.get('json_file', '')}`, `{review.get('markdown_file', '')}`")
+        lines.append(f"  - Resources/findings: `{review.get('resource_count', 0)}` / `{review.get('finding_count', 0)}`")
     if isinstance(evidence.get("failure"), dict):
         failure = evidence["failure"]
         lines.extend([f"- Failure stage: `{failure.get('stage', '')}`",
                       f"- Failure category: `{failure.get('category', '')}`"])
     lines.extend(["", "Evidence contains fingerprints and hashes, not credentials or raw identities.",
-                  "The validated JSON plan is review evidence only and does not mutate Databricks state.", ""])
+                  "The validated and policy-reviewed JSON plan is evidence only and does not mutate Databricks state.", ""])
     return "\n".join(lines)
+
 
 def capture_evidence(*, target: str, mode: str, output_directory: Path,
                      bundle_variables: Sequence[str], environment: Mapping[str, str],
@@ -147,6 +208,11 @@ def capture_evidence(*, target: str, mode: str, output_directory: Path,
                 prepared, environment, timeout_seconds=validate_timeout_seconds)
             evidence["plan"] = capture_bundle_stage("plan", target, variables,
                 prepared, environment, timeout_seconds=plan_timeout_seconds)
+            evidence["review"] = capture_plan_review(
+                target=target,
+                source_commit=environment.get("GITHUB_SHA", ""),
+                output_directory=prepared,
+            )
         evidence.update({"status": "succeeded", "completed_at_utc": utc_now()})
     except EvidenceError as error:
         _record_failure(evidence, error)
@@ -167,6 +233,7 @@ def capture_evidence(*, target: str, mode: str, output_directory: Path,
     print(f"Databricks {mode} evidence captured for target {target}")
     return 0
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True, choices=sorted(ALLOWED_TARGETS))
@@ -180,6 +247,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan-timeout-seconds", type=positive_seconds,
                         default=DEFAULT_PLAN_TIMEOUT_SECONDS)
     return parser.parse_args()
+
 
 def main() -> int:
     args = parse_args()
