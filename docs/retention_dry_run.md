@@ -1,8 +1,8 @@
 # Retention dry-run planning
 
-The retention policy in `governance/operational_alert_policy.json` defines review
-expectations. It is not an automatic deletion schedule. Before any cleanup is
-considered, capture a sanitized development inventory and generate a dry-run plan:
+The retention expectations in `governance/operational_alert_policy.json` are
+review policy, not an automatic deletion schedule. Before cleanup is considered,
+capture a sanitized development inventory and generate a dry-run plan:
 
 ```bash
 python3 scripts/plan_retention_dry_run.py \
@@ -11,11 +11,12 @@ python3 scripts/plan_retention_dry_run.py \
 ```
 
 The planner is offline and does not execute `DELETE`, `VACUUM`, or `DROP`. It
-performs no Databricks, SQL, storage, GitHub, network, or subprocess operation.
+performs no Databricks, SQL, storage, GitHub, network, or external-command
+operation.
 
 ## Inventory boundary
 
-The schema-version-1 inventory contains:
+The schema-version-1 inventory contains exactly:
 
 ```text
 target: dev
@@ -24,16 +25,22 @@ source_commit
 captured_at_utc
 workspace_fingerprint
 legal_hold
+legal_hold_evidence_sha256
 active_incident
+active_incident_evidence_sha256
 recovery
 relations
 ```
 
-Use relation fingerprints rather than catalog, schema, table, volume, path, or
-checkpoint names. Keep raw query output and provider diagnostics in the protected
-evidence system.
+The legal-hold and active-incident Booleans must each carry a protected evidence
+digest. A bare `false` value is not accepted. Keep the raw legal/operational
+readback in the protected evidence system and put only its SHA-256 digest here.
 
-Every relation entry maps one policy retention key to:
+Use relation fingerprints rather than catalog, schema, table, volume, path, or
+checkpoint names. Keep raw query output and provider diagnostics outside the
+sanitized manifest.
+
+Each relation maps one policy retention key to:
 
 ```text
 relation_fingerprint
@@ -47,7 +54,10 @@ candidate_versions
 evidence_sha256
 ```
 
-The five required policy keys are:
+Candidate rows, bytes, and versions must be either all zero or all positive. This
+prevents a partially populated inventory from understating cleanup volume.
+
+The required policy keys are:
 
 ```text
 quality_check_results_days
@@ -62,10 +72,11 @@ expectation_event_log_days
 Planning blocks when:
 
 - a legal hold or active incident exists;
+- protected hold or incident evidence is absent or malformed;
 - recovery evidence is unverified;
 - the recovery window is shorter than seven days by default;
 - inventory is stale or materially in the future;
-- a required retention relation is missing;
+- a required relation is missing;
 - a candidate is not older than its policy cutoff;
 - a candidate is later than the latest committed evidence;
 - recovery or candidate version counts exceed current state;
@@ -85,9 +96,10 @@ retention-dry-run-plan.json
 retention-dry-run-plan.md
 ```
 
-Outputs include policy and inventory digests, computed cutoffs, relation
-fingerprints, bounded counts, versions, recovery evidence, and stable findings.
-They exclude relation names, paths, row content, provider output, and credentials.
+Outputs include policy and inventory digests, legal-hold and incident evidence
+digests, computed cutoffs, relation fingerprints, bounded counts, versions,
+recovery evidence, and stable findings. They exclude relation names, paths, row
+content, provider output, and credentials.
 
 Human approval is still required before any separately implemented cleanup. A
 future executor must consume an exact accepted plan, recheck legal holds,
