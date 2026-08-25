@@ -36,11 +36,27 @@ BASE_ENV = {
     "PATH": "/usr/bin:/bin",
 }
 
+
 def done(stdout: str = "", stderr: str = "", code: int = 0):
     return subprocess.CompletedProcess(["databricks"], code, stdout, stderr)
 
+
 def identity(app: str = "expected-app") -> str:
     return json.dumps({"id": "principal-id", "applicationId": app, "active": True})
+
+
+def direct_plan(resources: dict[str, dict]) -> str:
+    return json.dumps(
+        {
+            "plan_version": 2,
+            "cli_version": "0.280.0",
+            "lineage": "lineage-value",
+            "serial": 7,
+            "plan": resources,
+            "not_selected": 0,
+        }
+    ) + "\n"
+
 
 class CaptureDatabricksPlanTest(unittest.TestCase):
     def test_positive_seconds_and_variables_fail_closed(self):
@@ -53,8 +69,15 @@ class CaptureDatabricksPlanTest(unittest.TestCase):
                 m.normalize_bundle_variables(values)
 
     @mock.patch.object(core.subprocess, "run")
-    def test_plan_mode_retains_exact_structured_plan(self, run):
-        plan_text = '{"actions":[{"action":"create","resource":"job"}]}\n'
+    def test_plan_mode_retains_and_reviews_exact_structured_plan(self, run):
+        plan_text = direct_plan(
+            {
+                "resources.jobs.dev_loader": {
+                    "action": "create",
+                    "new_state": {"name": "dev-loader"},
+                }
+            }
+        )
         run.side_effect = [done(identity()), done("validation output\n"), done(plan_text, "warning\n")]
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -62,28 +85,74 @@ class CaptureDatabricksPlanTest(unittest.TestCase):
                 bundle_variables=("catalog=main",), environment=BASE_ENV,
                 identity_timeout_seconds=11, validate_timeout_seconds=12, plan_timeout_seconds=13)
             evidence = json.loads((output / "evidence.json").read_text())
+            review = json.loads((output / m.PLAN_REVIEW_JSON).read_text())
             self.assertEqual(0, result)
             self.assertEqual(2, evidence["schema_version"])
             self.assertEqual("json", evidence["plan"]["format"])
             self.assertEqual(m.PLAN_OUTPUT_FILE, evidence["plan"]["output_file"])
             self.assertEqual(plan_text, (output / m.PLAN_OUTPUT_FILE).read_text())
             self.assertEqual("validation output\n", (output / m.VALIDATION_OUTPUT_FILE).read_text())
+            self.assertEqual("accepted", evidence["review"]["status"])
+            self.assertEqual("accepted", review["status"])
+            self.assertEqual(1, review["resource_count"])
+            self.assertTrue((output / m.PLAN_REVIEW_MARKDOWN).is_file())
+            self.assertIn("Policy review: **accepted**", (output / "summary.md").read_text())
         self.assertEqual(3, run.call_count)
         plan_command = run.call_args_list[2].args[0]
         self.assertEqual(["databricks", "bundle", "plan", "--target", "dev", "--output", "json"], plan_command[:7])
         self.assertEqual(13, run.call_args_list[2].kwargs["timeout"])
 
     @mock.patch.object(core.subprocess, "run")
-    def test_identity_mode_does_not_run_bundle_commands(self, run):
-        run.return_value = done(identity())
+    def test_blocked_plan_is_retained_before_capture_fails(self, run):
+        plan_text = direct_plan(
+            {"resources.jobs.dev_obsolete": {"action": "delete"}}
+        )
+        run.side_effect = [done(identity()), done("validation output\n"), done(plan_text)]
         with tempfile.TemporaryDirectory() as directory:
-            result = m.capture_evidence(target="prod", mode="identity", output_directory=Path(directory),
+            output = Path(directory)
+            result = m.capture_evidence(target="dev", mode="plan", output_directory=output,
                 bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
                 validate_timeout_seconds=5, plan_timeout_seconds=5)
-            evidence = json.loads((Path(directory) / "evidence.json").read_text())
+            evidence = json.loads((output / "evidence.json").read_text())
+            review = json.loads((output / m.PLAN_REVIEW_JSON).read_text())
+            self.assertEqual(1, result)
+            self.assertEqual("review", evidence["failure"]["stage"])
+            self.assertEqual("plan_blocked", evidence["failure"]["category"])
+            self.assertEqual("blocked", evidence["review"]["status"])
+            self.assertEqual("blocked", review["status"])
+            self.assertEqual("delete_is_not_allowed", review["findings"][-1]["category"])
+            self.assertTrue((output / m.PLAN_REVIEW_MARKDOWN).is_file())
+            self.assertIn("Policy review: **blocked**", (output / "summary.md").read_text())
+
+    @mock.patch.object(core.subprocess, "run")
+    def test_malformed_direct_plan_fails_in_review_without_review_files(self, run):
+        run.side_effect = [done(identity()), done("ok"), done('{"actions": []}\n')]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            result = m.capture_evidence(target="dev", mode="plan", output_directory=output,
+                bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                validate_timeout_seconds=5, plan_timeout_seconds=5)
+            evidence = json.loads((output / "evidence.json").read_text())
+            self.assertEqual(1, result)
+            self.assertEqual("review", evidence["failure"]["stage"])
+            self.assertEqual("plan_shape_is_invalid", evidence["failure"]["category"])
+            self.assertTrue((output / m.PLAN_OUTPUT_FILE).is_file())
+            self.assertFalse((output / m.PLAN_REVIEW_JSON).exists())
+
+    @mock.patch.object(core.subprocess, "run")
+    def test_identity_mode_does_not_run_bundle_commands_or_review(self, run):
+        run.return_value = done(identity())
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            result = m.capture_evidence(target="prod", mode="identity", output_directory=output,
+                bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                validate_timeout_seconds=5, plan_timeout_seconds=5)
+            evidence = json.loads((output / "evidence.json").read_text())
         self.assertEqual(0, result)
         self.assertEqual(1, run.call_count)
         self.assertNotIn("plan", evidence)
+        self.assertNotIn("review", evidence)
+        self.assertFalse((output / m.PLAN_REVIEW_JSON).exists())
 
     @mock.patch.object(core.subprocess, "run")
     def test_invalid_or_non_object_plan_fails_without_plan_file(self, run):
@@ -151,6 +220,7 @@ class CaptureDatabricksPlanTest(unittest.TestCase):
                 bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
                 validate_timeout_seconds=5, plan_timeout_seconds=5)
             self.assertEqual(1, result)
+
 
 if __name__ == "__main__":
     unittest.main()

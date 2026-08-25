@@ -30,13 +30,25 @@ REQUIRED_GITHUB_CONTEXT = (
     "GITHUB_RUN_ATTEMPT",
 )
 
+
 class EvidenceError(RuntimeError):
     """A bounded failure safe to persist without provider diagnostics."""
-    def __init__(self, stage: str, category: str, *, exit_code: int | None = None,
-                 stdout: str = "", stderr: str = "") -> None:
+
+    def __init__(
+        self,
+        stage: str,
+        category: str,
+        *,
+        exit_code: int | None = None,
+        stdout: str = "",
+        stderr: str = "",
+        review: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(f"{stage}: {category}")
         self.stage, self.category = stage, category
         self.exit_code, self.stdout, self.stderr = exit_code, stdout, stderr
+        self.review = dict(review) if review is not None else None
+
 
 def positive_seconds(value: str) -> float:
     try:
@@ -47,22 +59,27 @@ def positive_seconds(value: str) -> float:
         raise argparse.ArgumentTypeError("must be a finite positive number of seconds")
     return parsed
 
+
 def fingerprint(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
+
 def text_metadata(value: str) -> dict[str, int | str]:
     encoded = value.encode("utf-8", errors="replace")
     return {"bytes": len(encoded), "sha256": hashlib.sha256(encoded).hexdigest()}
+
 
 def write_text_atomic(path: Path, content: str) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(content, encoding="utf-8")
     temporary.replace(path)
 
+
 def write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     write_text_atomic(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
 
 def prepare_output_directory(path: Path) -> Path:
     if path.exists() and path.is_symlink():
@@ -74,6 +91,7 @@ def prepare_output_directory(path: Path) -> Path:
     if path.is_symlink() or not path.is_dir():
         raise EvidenceError("configuration", "output_directory_is_not_regular")
     return path
+
 
 def normalize_bundle_variables(values: Sequence[str]) -> tuple[str, ...]:
     if len(values) > MAX_BUNDLE_VARIABLES:
@@ -98,6 +116,7 @@ def normalize_bundle_variables(values: Sequence[str]) -> tuple[str, ...]:
         normalized.append(value)
     return tuple(normalized)
 
+
 def validate_environment(environment: Mapping[str, str], target: str) -> None:
     if target not in ALLOWED_TARGETS:
         raise EvidenceError("configuration", "unsupported_target")
@@ -113,6 +132,7 @@ def validate_environment(environment: Mapping[str, str], target: str) -> None:
         raise EvidenceError("configuration", "static_client_secret_is_present")
     if any(not environment.get(name, "").strip() for name in REQUIRED_GITHUB_CONTEXT):
         raise EvidenceError("configuration", "github_oidc_context_is_incomplete")
+
 
 def run_command(command: Sequence[str], *, stage: str, timeout_seconds: float,
                 environment: Mapping[str, str]) -> subprocess.CompletedProcess[str]:
@@ -130,12 +150,14 @@ def run_command(command: Sequence[str], *, stage: str, timeout_seconds: float,
                             stdout=completed.stdout, stderr=completed.stderr)
     return completed
 
+
 def _first_string(payload: Mapping[str, Any], *keys: str) -> str | None:
     for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
 
 def verify_identity(environment: Mapping[str, str], *, timeout_seconds: float) -> dict[str, Any]:
     completed = run_command(["databricks", "current-user", "me", "-o", "json"],
