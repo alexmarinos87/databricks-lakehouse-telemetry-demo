@@ -8,10 +8,14 @@ DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
 PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
 PLAN_CORE = REPO_ROOT / "scripts" / "plan_evidence" / "core.py"
 PLAN_CAPTURE = REPO_ROOT / "scripts" / "plan_evidence" / "capture.py"
+PLAN_VERIFIER = REPO_ROOT / "scripts" / "verify_bundle_plan_artifact.py"
 BUNDLE = REPO_ROOT / "databricks.yml"
 
 UPLOAD_ARTIFACT_SHA = (
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+)
+DOWNLOAD_ARTIFACT_SHA = (
+    "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
 )
 
 
@@ -72,6 +76,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
         workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(4, workflow.count("id-token: write"))
+        self.assertEqual(2, workflow.count("actions: read"))
         self.assertEqual(4, workflow.count("DATABRICKS_AUTH_TYPE: github-oidc"))
         self.assertEqual(8, workflow.count("DATABRICKS_CLIENT_ID:"))
         self.assertEqual(4, workflow.count("DATABRICKS_HOST:"))
@@ -86,20 +91,81 @@ class ManualDeploymentContractTest(unittest.TestCase):
         workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(6, workflow.count(UPLOAD_ARTIFACT_SHA))
+        self.assertEqual(2, workflow.count(DOWNLOAD_ARTIFACT_SHA))
         self.assertEqual(6, workflow.count("retention-days: 14"))
         self.assertEqual(6, workflow.count("if-no-files-found: error"))
-        self.assertIn(
-            "databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}",
-            workflow,
+        self.assertEqual(
+            2,
+            workflow.count(
+                "databricks-dev-plan-${{ github.sha }}-${{ github.run_attempt }}"
+            ),
         )
-        self.assertIn(
-            "databricks-prod-plan-${{ github.sha }}-${{ github.run_attempt }}",
-            workflow,
+        self.assertEqual(
+            2,
+            workflow.count(
+                "databricks-prod-plan-${{ github.sha }}-${{ github.run_attempt }}"
+            ),
         )
         self.assertIn("Publish dev plan evidence summary", workflow)
         self.assertIn("Publish prod plan evidence summary", workflow)
         self.assertIn("output/databricks-plan/dev", workflow)
         self.assertIn("output/databricks-plan/prod", workflow)
+        self.assertIn("input/databricks-plan/dev", workflow)
+        self.assertIn("input/databricks-plan/prod", workflow)
+
+    def test_apply_downloads_verifies_and_replays_same_run_plan(self):
+        workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertEqual(2, workflow.count("scripts/verify_bundle_plan_artifact.py"))
+        self.assertEqual(2, workflow.count("--expected-repository \"${GITHUB_REPOSITORY}\""))
+        self.assertEqual(2, workflow.count("--expected-ref \"${GITHUB_REF}\""))
+        self.assertEqual(2, workflow.count("--expected-commit \"${GITHUB_SHA}\""))
+        self.assertEqual(2, workflow.count("--expected-run-id \"${GITHUB_RUN_ID}\""))
+        self.assertEqual(
+            2,
+            workflow.count(
+                "--expected-run-attempt \"${GITHUB_RUN_ATTEMPT}\""
+            ),
+        )
+        self.assertEqual(
+            2,
+            workflow.count('--plan "${PLAN_INPUT_DIR}/bundle-plan.json"'),
+        )
+
+        dev_apply = workflow.split("  deploy-dev:", 1)[1].split("  diff-prod:", 1)[0]
+        prod_apply = workflow.split("  deploy-prod:", 1)[1]
+        for target, section in (("dev", dev_apply), ("prod", prod_apply)):
+            with self.subTest(target=target):
+                download = section.index(f"Download reviewed {target} plan evidence")
+                verify = section.index(f"Verify reviewed {target} plan artifact")
+                cli = section.index("Install Databricks CLI")
+                deploy = section.index(f"Deploy {target} bundle from reviewed plan")
+                self.assertLess(download, verify)
+                self.assertLess(verify, cli)
+                self.assertLess(cli, deploy)
+                self.assertIn(f"--expected-target {target}", section)
+
+    def test_plan_artifact_verifier_is_local_bounded_and_fail_closed(self):
+        source = PLAN_VERIFIER.read_text(encoding="utf-8")
+
+        required = [
+            "ExpectedProvenance",
+            "artifact_contains_unexpected_file",
+            "artifact_contains_non_regular_entry",
+            "plan_evidence_target_mismatch",
+            "commit_provenance_mismatch",
+            "run_attempt_provenance_mismatch",
+            "bundle_plan_unexpected_shape",
+            "MAX_PLAN_BYTES",
+            "output_sha256",
+            "github-oidc",
+        ]
+        for token in required:
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+        self.assertNotIn("subprocess", source)
+        self.assertNotIn("urllib", source)
+        self.assertNotIn("requests", source)
 
     def test_bundle_pins_direct_engine_and_supported_cli(self):
         bundle = BUNDLE.read_text(encoding="utf-8")
@@ -130,25 +196,30 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertNotIn("check_output", script)
         self.assertNotIn("check_call", script)
 
-    def test_documentation_requires_federation_plan_review_and_approval(self):
+    def test_documentation_requires_reviewed_plan_replay_and_approval(self):
         documentation = DEPLOYMENT_DOC.read_text(encoding="utf-8")
 
         self.assertIn("A merge to `main` never deploys", documentation)
         self.assertIn("Leave `apply_changes` disabled", documentation)
         self.assertIn(
-            "Review the completed `bundle validate` and `bundle plan`",
+            "Review the completed `bundle validate` and structured `bundle plan`",
             documentation,
         )
         self.assertIn("DATABRICKS_AUTH_TYPE=github-oidc", documentation)
         self.assertIn("id-token: write", documentation)
+        self.assertIn("actions: read", documentation)
         self.assertIn(
             "repo:alexmarinos87/databricks-lakehouse-telemetry-demo:environment:dev",
             documentation,
         )
-        self.assertIn("does not cryptographically bind", documentation)
+        self.assertIn("scripts/verify_bundle_plan_artifact.py", documentation)
+        self.assertIn(
+            "databricks bundle deploy --target <target> --plan", documentation
+        )
         self.assertIn("environment approval", documentation)
         self.assertIn("reuse the established Auto Loader checkpoint", documentation)
         self.assertIn("does not use a fixed landing filename", documentation)
+        self.assertNotIn("does not cryptographically bind", documentation)
 
 
 if __name__ == "__main__":
