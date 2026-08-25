@@ -12,6 +12,13 @@ PIPELINE = REPO_ROOT / "resources" / "lakehouse_quality_expectations.yml"
 ACCESS_CONTROLS = REPO_ROOT / "resources" / "access_controls.yml"
 CONTRACT = REPO_ROOT / "config" / "identity_privilege_contract.json"
 DOCUMENTATION = REPO_ROOT / "docs" / "identity_model.md"
+VERIFIER = REPO_ROOT / "scripts" / "verify_identity_privilege_evidence.py"
+CHANGE_BRIEF = (
+    REPO_ROOT
+    / "docs"
+    / "change_briefs"
+    / "verify_identity_privilege_evidence.md"
+)
 
 
 class RuntimeIdentityContractTest(unittest.TestCase):
@@ -94,14 +101,47 @@ class RuntimeIdentityContractTest(unittest.TestCase):
             contract["known_exception"]["capability"],
         )
 
+    def test_live_evidence_verifier_is_bounded_offline_and_fail_closed(self):
+        source = VERIFIER.read_text(encoding="utf-8")
+
+        for token in (
+            "identity_privilege_contract.json",
+            "REQUIRED_EVIDENCE_RULES",
+            "evidence_target_must_be_dev",
+            "identity_fingerprints_overlap",
+            "required_evidence_missing",
+            "required_capability_not_succeeded",
+            "expected_denial_not_observed",
+            "DEFAULT_MAX_AGE_HOURS",
+            "MAX_OBSERVATIONS",
+            "identity-privilege-verification.json",
+            "identity-privilege-verification.md",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+        self.assertNotIn("subprocess", source)
+        self.assertNotIn("urllib", source)
+        self.assertNotIn("requests.", source)
+        self.assertNotIn("DATABRICKS_TOKEN", source)
+        self.assertNotIn("DATABRICKS_CLIENT_SECRET", source)
+
     def test_documentation_names_service_principal_user_and_live_denials(self):
-        documentation = DOCUMENTATION.read_text(encoding="utf-8")
+        documentation = "\n".join(
+            (
+                DOCUMENTATION.read_text(encoding="utf-8"),
+                CHANGE_BRIEF.read_text(encoding="utf-8"),
+            )
+        )
 
         self.assertIn("Service Principal User", documentation)
         self.assertIn("deployment principal is denied `SELECT`", documentation)
         self.assertIn("runtime principal is denied bundle deployment", documentation)
         self.assertIn("A successful repository CI run or bundle plan is not live", documentation)
         self.assertIn("optional synthetic fixture upload", documentation)
+        self.assertIn("verify_identity_privilege_evidence.py", documentation)
+        self.assertIn("denied_live_attempt", documentation)
+        self.assertIn("identity-privilege-verification.json", documentation)
+        self.assertIn("development evidence only", documentation)
 
 
 if __name__ == "__main__":
