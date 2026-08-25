@@ -46,6 +46,37 @@ class TestExternalBootstrapContract(unittest.TestCase):
         self.assertNotIn('method="PATCH"', source)
         self.assertNotIn('method="DELETE"', source)
 
+    def test_databricks_federation_verifier_is_read_only_secretless_and_sanitized(self):
+        source = (ROOT / "scripts/verify_databricks_federation.py").read_text()
+        required_tokens = [
+            '"service-principals",\n                "get"',
+            '"service-principal-federation-policy",\n                "list"',
+            '"service-principal-secrets",\n                "list"',
+            "databricks-federation-verification.json",
+            "DATABRICKS_TOKEN",
+            "DATABRICKS_CLIENT_SECRET",
+            "deployment and runtime numeric identities overlap",
+            "service_principal_is_account_admin",
+            "service_principal_has_oauth_secrets",
+            "unexpected_federation_policy",
+            "MAX_PAGES",
+            "pagination_token_repeated",
+        ]
+        for token in required_tokens:
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+        self.assertNotIn('parser.add_argument("--token"', source)
+        self.assertNotIn('"service-principals",\n                "create"', source)
+        self.assertNotIn(
+            '"service-principal-federation-policy",\n                "create"', source
+        )
+        self.assertNotIn(
+            '"service-principal-secrets",\n                "create"', source
+        )
+        self.assertNotIn('"update"', source)
+        self.assertNotIn('"delete"', source)
+        self.assertNotIn('"patch"', source)
+
     def test_plan_command_is_owner_only_plan_only_and_readiness_gated(self):
         workflow = (
             ROOT / ".github" / "workflows" / "plan-evidence-command.yml"
@@ -105,6 +136,11 @@ class TestExternalBootstrapContract(unittest.TestCase):
             "github-governance-verification.json",
             "GET requests only",
             "status: verified",
+            "scripts/verify_databricks_federation.py",
+            "databricks-federation-verification.json",
+            "service-principal-secrets list",
+            "no OAuth client secret",
+            "both independent verifiers record `status: verified`",
         ]
         for token in required_tokens:
             with self.subTest(token=token):
