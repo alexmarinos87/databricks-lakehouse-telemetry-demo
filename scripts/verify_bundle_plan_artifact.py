@@ -17,6 +17,7 @@ SUMMARY_FILE = "summary.md"
 VALIDATION_FILE = "bundle-validate.txt"
 PLAN_WARNING_FILE = "bundle-plan-warnings.txt"
 VALIDATION_WARNING_FILE = "bundle-validate-warnings.txt"
+BUNDLE_PLAN_SHAPE_ERROR = "bundle_plan_unexpected_shape"
 REQUIRED_FILES = {EVIDENCE_FILE, SUMMARY_FILE, VALIDATION_FILE, PLAN_FILE}
 OPTIONAL_FILES = {PLAN_WARNING_FILE, VALIDATION_WARNING_FILE}
 ALLOWED_FILES = REQUIRED_FILES | OPTIONAL_FILES
@@ -77,6 +78,8 @@ def _parse_json_object(value: bytes, *, category: str) -> dict[str, Any]:
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ArtifactError(f"{category}_invalid_json") from None
     if not isinstance(parsed, dict):
+        if category == "bundle_plan":
+            raise ArtifactError(BUNDLE_PLAN_SHAPE_ERROR)
         raise ArtifactError(f"{category}_unexpected_shape")
     return parsed
 
