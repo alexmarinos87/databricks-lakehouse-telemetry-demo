@@ -12,8 +12,8 @@ principal IDs, workspace hosts, or client IDs. Store local files below
 `.bootstrap/`, which is ignored by Git.
 
 The scripts accept no token command-line arguments. `GITHUB_ADMIN_TOKEN` is read
-only from the process environment. Databricks bootstrap uses an already
-authenticated account-admin CLI profile created with:
+only from the process environment. Databricks bootstrap and verification use an
+already authenticated account-admin CLI profile created with:
 
 ```bash
 databricks auth login \
@@ -21,7 +21,9 @@ databricks auth login \
   --account-id <account-id>
 ```
 
-Remove or expire one-time administrative credentials after verification.
+Do not export `DATABRICKS_TOKEN` or `DATABRICKS_CLIENT_SECRET` for the
+verification step. Remove or expire one-time administrative credentials after
+verification.
 
 ## 1. Prepare local configuration
 
@@ -193,13 +195,61 @@ Actions issuer. They fail when an existing policy for a subject has a different
 audience or issuer. They do not grant workspace-admin or account-admin rights
 to the deployment or runtime principals.
 
+## 5. Verify effective Databricks federation state
+
+Do not treat successful policy-create responses as closure evidence. While the
+account-admin CLI session is still available, run the independent read-only
+verifier:
+
+```bash
+python3 scripts/verify_databricks_federation.py \
+  --deployment-config .bootstrap/databricks-federation.json \
+  --runtime-config .bootstrap/runtime-identity.json \
+  --output-dir .bootstrap/evidence/databricks-federation \
+  --timeout-seconds 60
+```
+
+The verifier performs only these account inventory operations:
+
+```text
+databricks account service-principals get
+databricks account service-principal-federation-policy list
+databricks account service-principal-secrets list
+```
+
+It independently proves that numeric IDs resolve to the configured application
+IDs, deployment and runtime identities stay globally separate, every principal
+is active and not an account administrator, every configured GitHub environment
+has exactly one matching issuer/audience/subject policy, no unexpected policy
+broadens trust, and no OAuth client secret remains attached to a referenced
+principal.
+
+It writes:
+
+```text
+.bootstrap/evidence/databricks-federation/databricks-federation-verification.json
+.bootstrap/evidence/databricks-federation/databricks-federation-verification.md
+```
+
+The evidence contains fingerprints, counts, booleans, roles, environments and
+stable drift categories. It excludes account hosts, account IDs, application
+IDs, numeric service-principal IDs, policy IDs, secret IDs, credential values
+and raw provider diagnostics.
+
+Require `status: verified` before proceeding. A non-zero result is evidence of
+incomplete or drifting federation state. Do not add a static OAuth secret or
+weaken the expected issuer, audience, subject or identity-separation boundary to
+make verification pass.
+
 Bootstrap the minimum workspace and Unity Catalog permissions separately and
 record both successful required actions and denied out-of-scope actions in issue
-#44.
+#44. This account-level verifier does not prove workspace assignment, Service
+Principal User relationships, or Unity Catalog privileges.
 
-## 5. Trigger the plan-only development check
+## 6. Trigger the plan-only development check
 
-After the scripts verify successfully, add this exact comment to issue #44:
+After both independent verifiers record `status: verified`, add this exact
+comment to issue #44:
 
 ```text
 /databricks-plan dev
