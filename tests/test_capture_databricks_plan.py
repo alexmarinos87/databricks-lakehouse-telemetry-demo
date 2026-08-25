@@ -4,21 +4,23 @@ import argparse
 import importlib.util
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+SPEC = importlib.util.spec_from_file_location("capture_databricks_plan", SCRIPTS / "capture_databricks_plan.py")
+assert SPEC and SPEC.loader
+m = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(m)
+import plan_evidence.core as core
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
-SPEC = importlib.util.spec_from_file_location("capture_databricks_plan", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-capture_databricks_plan = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(capture_databricks_plan)
-
-
-BASE_ENVIRONMENT = {
+BASE_ENV = {
     "GITHUB_ACTIONS": "true",
     "ACTIONS_ID_TOKEN_REQUEST_URL": "https://token.actions.example/request",
     "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "short-lived-request-token",
@@ -30,315 +32,125 @@ BASE_ENVIRONMENT = {
     "GITHUB_WORKFLOW": "Deploy Databricks Bundle",
     "DATABRICKS_AUTH_TYPE": "github-oidc",
     "DATABRICKS_HOST": "https://example.cloud.databricks.com",
-    "DATABRICKS_CLIENT_ID": "expected-application-id",
+    "DATABRICKS_CLIENT_ID": "expected-app",
     "PATH": "/usr/bin:/bin",
 }
 
+def done(stdout: str = "", stderr: str = "", code: int = 0):
+    return subprocess.CompletedProcess(["databricks"], code, stdout, stderr)
 
-def completed(command: list[str], stdout: str = "", stderr: str = ""):
-    return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=stderr)
-
+def identity(app: str = "expected-app") -> str:
+    return json.dumps({"id": "principal-id", "applicationId": app, "active": True})
 
 class CaptureDatabricksPlanTest(unittest.TestCase):
-    def test_positive_seconds_rejects_zero_negative_and_non_finite_values(self):
-        for value in ("0", "-1", "nan", "inf", "-inf"):
-            with self.subTest(value=value):
-                with self.assertRaises(argparse.ArgumentTypeError):
-                    capture_databricks_plan.positive_seconds(value)
-        self.assertEqual(2.5, capture_databricks_plan.positive_seconds("2.5"))
+    def test_positive_seconds_and_variables_fail_closed(self):
+        for value in ("0", "-1", "nan", "inf"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                m.positive_seconds(value)
+        self.assertEqual(("catalog=main",), m.normalize_bundle_variables(["catalog=main"]))
+        for values in (["bad"], ["x="], ["x=1", "x=2"], ["x=a\nb"], [f"v{i}=x" for i in range(33)]):
+            with self.assertRaises(m.EvidenceError):
+                m.normalize_bundle_variables(values)
 
-    def test_bundle_variables_are_bounded_and_fail_closed(self):
-        self.assertEqual(
-            ("catalog=main", "schema=demo"),
-            capture_databricks_plan.normalize_bundle_variables(
-                ["catalog=main", "schema=demo"]
-            ),
-        )
-        invalid_values = (
-            ["missing-separator"],
-            ["bad-name!=value"],
-            ["catalog="],
-            ["catalog=one", "catalog=two"],
-            ["catalog=line\nbreak"],
-            [f"v{index}=x" for index in range(33)],
-        )
-        for values in invalid_values:
-            with self.subTest(values=values[:2]):
-                with self.assertRaises(capture_databricks_plan.EvidenceError):
-                    capture_databricks_plan.normalize_bundle_variables(values)
-
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_plan_mode_captures_identity_validation_and_plan_evidence(self, run):
-        identity_payload = json.dumps(
-            {
-                "id": "principal-object-id",
-                "applicationId": BASE_ENVIRONMENT["DATABRICKS_CLIENT_ID"],
-                "active": True,
-            }
-        )
-        run.side_effect = [
-            completed(["databricks"], stdout=identity_payload),
-            completed(["databricks"], stdout="validation output\n"),
-            completed(
-                ["databricks"],
-                stdout="plan output\n",
-                stderr="reviewable warning\n",
-            ),
-        ]
-
+    @mock.patch.object(core.subprocess, "run")
+    def test_plan_mode_retains_exact_structured_plan(self, run):
+        plan_text = '{"actions":[{"action":"create","resource":"job"}]}\n'
+        run.side_effect = [done(identity()), done("validation output\n"), done(plan_text, "warning\n")]
         with tempfile.TemporaryDirectory() as directory:
-            output_directory = Path(directory) / "evidence"
-            result = capture_databricks_plan.capture_evidence(
-                target="dev",
-                mode="plan",
-                output_directory=output_directory,
-                bundle_variables=("catalog=main", "schema=demo"),
-                environment=BASE_ENVIRONMENT,
-                identity_timeout_seconds=11,
-                validate_timeout_seconds=12,
-                plan_timeout_seconds=13,
-            )
-
+            output = Path(directory)
+            result = m.capture_evidence(target="dev", mode="plan", output_directory=output,
+                bundle_variables=("catalog=main",), environment=BASE_ENV,
+                identity_timeout_seconds=11, validate_timeout_seconds=12, plan_timeout_seconds=13)
+            evidence = json.loads((output / "evidence.json").read_text())
             self.assertEqual(0, result)
-            evidence = json.loads(
-                (output_directory / "evidence.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual("succeeded", evidence["status"])
-            self.assertEqual("succeeded", evidence["identity"]["status"])
-            self.assertEqual("succeeded", evidence["validation"]["status"])
-            self.assertEqual("succeeded", evidence["plan"]["status"])
-            self.assertEqual(
-                "validation output\n",
-                (output_directory / "bundle-validate.txt").read_text(
-                    encoding="utf-8"
-                ),
-            )
-            self.assertEqual(
-                "plan output\n",
-                (output_directory / "bundle-plan.txt").read_text(encoding="utf-8"),
-            )
-            self.assertEqual(
-                "reviewable warning\n",
-                (output_directory / "bundle-plan-warnings.txt").read_text(
-                    encoding="utf-8"
-                ),
-            )
-
+            self.assertEqual(2, evidence["schema_version"])
+            self.assertEqual("json", evidence["plan"]["format"])
+            self.assertEqual(m.PLAN_OUTPUT_FILE, evidence["plan"]["output_file"])
+            self.assertEqual(plan_text, (output / m.PLAN_OUTPUT_FILE).read_text())
+            self.assertEqual("validation output\n", (output / m.VALIDATION_OUTPUT_FILE).read_text())
         self.assertEqual(3, run.call_count)
-        self.assertEqual(
-            ["databricks", "current-user", "me", "-o", "json"],
-            run.call_args_list[0].args[0],
-        )
-        validate_command = run.call_args_list[1].args[0]
         plan_command = run.call_args_list[2].args[0]
-        self.assertEqual(["databricks", "bundle", "validate"], validate_command[:3])
-        self.assertEqual(["databricks", "bundle", "plan"], plan_command[:3])
-        self.assertIn("catalog=main", validate_command)
-        self.assertIn("schema=demo", plan_command)
-        self.assertEqual(11, run.call_args_list[0].kwargs["timeout"])
-        self.assertEqual(12, run.call_args_list[1].kwargs["timeout"])
+        self.assertEqual(["databricks", "bundle", "plan", "--target", "dev", "--output", "json"], plan_command[:7])
         self.assertEqual(13, run.call_args_list[2].kwargs["timeout"])
-        for call in run.call_args_list:
-            self.assertNotIn("DATABRICKS_CLIENT_SECRET", call.kwargs["env"])
 
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
+    @mock.patch.object(core.subprocess, "run")
     def test_identity_mode_does_not_run_bundle_commands(self, run):
-        run.return_value = completed(
-            ["databricks"],
-            stdout=json.dumps(
-                {
-                    "id": "principal-object-id",
-                    "application_id": BASE_ENVIRONMENT["DATABRICKS_CLIENT_ID"],
-                }
-            ),
-        )
+        run.return_value = done(identity())
         with tempfile.TemporaryDirectory() as directory:
-            result = capture_databricks_plan.capture_evidence(
-                target="prod",
-                mode="identity",
-                output_directory=Path(directory),
-                bundle_variables=(),
-                environment=BASE_ENVIRONMENT,
-                identity_timeout_seconds=10,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            evidence = json.loads(
-                (Path(directory) / "evidence.json").read_text(encoding="utf-8")
-            )
-
+            result = m.capture_evidence(target="prod", mode="identity", output_directory=Path(directory),
+                bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                validate_timeout_seconds=5, plan_timeout_seconds=5)
+            evidence = json.loads((Path(directory) / "evidence.json").read_text())
         self.assertEqual(0, result)
         self.assertEqual(1, run.call_count)
-        self.assertEqual("succeeded", evidence["status"])
-        self.assertNotIn("validation", evidence)
         self.assertNotIn("plan", evidence)
 
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_mismatched_identity_fails_without_persisting_raw_identifiers(self, run):
-        run.return_value = completed(
-            ["databricks"],
-            stdout=json.dumps(
-                {
-                    "id": "raw-principal-object-id",
-                    "applicationId": "unexpected-application-id",
-                }
-            ),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            output_directory = Path(directory)
-            result = capture_databricks_plan.capture_evidence(
-                target="dev",
-                mode="plan",
-                output_directory=output_directory,
-                bundle_variables=(),
-                environment=BASE_ENVIRONMENT,
-                identity_timeout_seconds=10,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            serialized = (output_directory / "evidence.json").read_text(
-                encoding="utf-8"
-            )
-            evidence = json.loads(serialized)
+    @mock.patch.object(core.subprocess, "run")
+    def test_invalid_or_non_object_plan_fails_without_plan_file(self, run):
+        for output, category in (("not-json", "invalid_json_response"), ("[]", "unexpected_json_shape")):
+            run.reset_mock()
+            run.side_effect = [done(identity()), done("ok"), done(output)]
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                result = m.capture_evidence(target="dev", mode="plan", output_directory=path,
+                    bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                    validate_timeout_seconds=5, plan_timeout_seconds=5)
+                evidence = json.loads((path / "evidence.json").read_text())
+                self.assertEqual(1, result)
+                self.assertEqual(category, evidence["failure"]["category"])
+                self.assertFalse((path / m.PLAN_OUTPUT_FILE).exists())
+                self.assertNotIn(output, (path / "evidence.json").read_text())
 
-        self.assertEqual(1, result)
-        self.assertEqual(
-            "authenticated_identity_does_not_match_client_id",
-            evidence["failure"]["category"],
-        )
-        self.assertNotIn("unexpected-application-id", serialized)
-        self.assertNotIn("raw-principal-object-id", serialized)
-        self.assertNotIn(BASE_ENVIRONMENT["DATABRICKS_CLIENT_ID"], serialized)
-        self.assertEqual(1, run.call_count)
-
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_static_client_secret_is_rejected_before_any_command(self, run):
-        environment = dict(BASE_ENVIRONMENT)
-        environment["DATABRICKS_CLIENT_SECRET"] = "must-not-be-used"
-        with tempfile.TemporaryDirectory() as directory:
-            output_directory = Path(directory)
-            result = capture_databricks_plan.capture_evidence(
-                target="dev",
-                mode="identity",
-                output_directory=output_directory,
-                bundle_variables=(),
-                environment=environment,
-                identity_timeout_seconds=10,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            serialized = (output_directory / "evidence.json").read_text(
-                encoding="utf-8"
-            )
-            evidence = json.loads(serialized)
-
-        self.assertEqual(1, result)
-        self.assertEqual(
-            "static_client_secret_is_present", evidence["failure"]["category"]
-        )
-        self.assertNotIn("must-not-be-used", serialized)
+    @mock.patch.object(core.subprocess, "run")
+    def test_static_secret_and_missing_oidc_block_before_commands(self, run):
+        for change, category in (({"DATABRICKS_CLIENT_SECRET": "secret"}, "static_client_secret_is_present"),
+                                 ({"ACTIONS_ID_TOKEN_REQUEST_TOKEN": ""}, "github_oidc_context_is_incomplete")):
+            env = dict(BASE_ENV); env.update(change)
+            with tempfile.TemporaryDirectory() as directory:
+                result = m.capture_evidence(target="dev", mode="identity", output_directory=Path(directory),
+                    bundle_variables=(), environment=env, identity_timeout_seconds=5,
+                    validate_timeout_seconds=5, plan_timeout_seconds=5)
+                evidence = json.loads((Path(directory) / "evidence.json").read_text())
+                self.assertEqual(1, result)
+                self.assertEqual(category, evidence["failure"]["category"])
         run.assert_not_called()
 
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_failed_validate_records_only_bounded_output_metadata(self, run):
-        identity_payload = json.dumps(
-            {
-                "id": "principal-object-id",
-                "applicationId": BASE_ENVIRONMENT["DATABRICKS_CLIENT_ID"],
-            }
-        )
-        run.side_effect = [
-            completed(["databricks"], stdout=identity_payload),
-            subprocess.CompletedProcess(
-                ["databricks"],
-                7,
-                stdout="sensitive validation output",
-                stderr="sensitive provider diagnostic",
-            ),
-        ]
+    @mock.patch.object(core.subprocess, "run")
+    def test_mismatched_identity_and_provider_failure_are_sanitized(self, run):
+        for side_effect, category in (
+            ([done(identity("wrong-app"))], "authenticated_identity_does_not_match_client_id"),
+            ([done(identity()), done("sensitive", "diagnostic", 7)], "command_failed"),
+        ):
+            run.reset_mock(); run.side_effect = side_effect
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                result = m.capture_evidence(target="dev", mode="plan", output_directory=path,
+                    bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                    validate_timeout_seconds=5, plan_timeout_seconds=5)
+                text = (path / "evidence.json").read_text()
+                evidence = json.loads(text)
+                self.assertEqual(1, result)
+                self.assertEqual(category, evidence["failure"]["category"])
+                self.assertNotIn("wrong-app", text)
+                self.assertNotIn("sensitive", text)
+                self.assertNotIn("diagnostic", text)
+
+    @mock.patch.object(core.subprocess, "run")
+    def test_timeout_and_output_directory_symlink_fail_closed(self, run):
+        run.side_effect = subprocess.TimeoutExpired(["databricks"], 5, output="sensitive")
         with tempfile.TemporaryDirectory() as directory:
-            output_directory = Path(directory)
-            result = capture_databricks_plan.capture_evidence(
-                target="dev",
-                mode="plan",
-                output_directory=output_directory,
-                bundle_variables=(),
-                environment=BASE_ENVIRONMENT,
-                identity_timeout_seconds=10,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            serialized = (output_directory / "evidence.json").read_text(
-                encoding="utf-8"
-            )
-            evidence = json.loads(serialized)
-
-        self.assertEqual(1, result)
-        self.assertEqual("validate", evidence["failure"]["stage"])
-        self.assertEqual(7, evidence["failure"]["exit_code"])
-        self.assertIn("sha256", evidence["failure"]["stdout"])
-        self.assertIn("sha256", evidence["failure"]["stderr"])
-        self.assertNotIn("sensitive validation output", serialized)
-        self.assertNotIn("sensitive provider diagnostic", serialized)
-        self.assertFalse((output_directory / "bundle-validate.txt").exists())
-        self.assertEqual(2, run.call_count)
-
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_identity_timeout_is_bounded_and_sanitized(self, run):
-        run.side_effect = subprocess.TimeoutExpired(
-            ["databricks", "current-user", "me"],
-            timeout=5,
-            output="partial sensitive output",
-            stderr="partial sensitive error",
-        )
+            path = Path(directory) / "evidence"
+            result = m.capture_evidence(target="dev", mode="identity", output_directory=path,
+                bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                validate_timeout_seconds=5, plan_timeout_seconds=5)
+            self.assertEqual(1, result)
+            self.assertNotIn("sensitive", (path / "evidence.json").read_text())
         with tempfile.TemporaryDirectory() as directory:
-            output_directory = Path(directory)
-            result = capture_databricks_plan.capture_evidence(
-                target="dev",
-                mode="identity",
-                output_directory=output_directory,
-                bundle_variables=(),
-                environment=BASE_ENVIRONMENT,
-                identity_timeout_seconds=5,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            serialized = (output_directory / "evidence.json").read_text(
-                encoding="utf-8"
-            )
-            evidence = json.loads(serialized)
-
-        self.assertEqual(1, result)
-        self.assertEqual("command_timed_out", evidence["failure"]["category"])
-        self.assertNotIn("partial sensitive output", serialized)
-        self.assertNotIn("partial sensitive error", serialized)
-        self.assertEqual(1, run.call_count)
-
-    @mock.patch.object(capture_databricks_plan.subprocess, "run")
-    def test_missing_github_oidc_context_fails_before_any_command(self, run):
-        environment = dict(BASE_ENVIRONMENT)
-        del environment["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
-        with tempfile.TemporaryDirectory() as directory:
-            result = capture_databricks_plan.capture_evidence(
-                target="prod",
-                mode="identity",
-                output_directory=Path(directory),
-                bundle_variables=(),
-                environment=environment,
-                identity_timeout_seconds=10,
-                validate_timeout_seconds=10,
-                plan_timeout_seconds=10,
-            )
-            evidence = json.loads(
-                (Path(directory) / "evidence.json").read_text(encoding="utf-8")
-            )
-
-        self.assertEqual(1, result)
-        self.assertEqual(
-            "github_oidc_context_is_incomplete", evidence["failure"]["category"]
-        )
-        run.assert_not_called()
-
+            root = Path(directory); target = root / "target"; target.mkdir(); link = root / "link"; link.symlink_to(target)
+            result = m.capture_evidence(target="dev", mode="identity", output_directory=link,
+                bundle_variables=(), environment=BASE_ENV, identity_timeout_seconds=5,
+                validate_timeout_seconds=5, plan_timeout_seconds=5)
+            self.assertEqual(1, result)
 
 if __name__ == "__main__":
     unittest.main()

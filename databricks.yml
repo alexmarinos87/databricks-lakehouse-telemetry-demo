@@ -1,5 +1,7 @@
 bundle:
   name: databricks_lakehouse_demo
+  engine: direct
+  databricks_cli_version: '>= 1.3.0, < 2.0.0'
 
 include:
   - resources/*.yml

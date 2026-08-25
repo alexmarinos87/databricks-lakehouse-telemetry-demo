@@ -6,6 +6,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
 PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
+PLAN_CORE = REPO_ROOT / "scripts" / "plan_evidence" / "core.py"
+PLAN_CAPTURE = REPO_ROOT / "scripts" / "plan_evidence" / "capture.py"
+BUNDLE = REPO_ROOT / "databricks.yml"
 
 UPLOAD_ARTIFACT_SHA = (
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
@@ -98,8 +101,17 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn("output/databricks-plan/dev", workflow)
         self.assertIn("output/databricks-plan/prod", workflow)
 
-    def test_plan_capture_is_bounded_and_rejects_static_secrets(self):
-        script = PLAN_SCRIPT.read_text(encoding="utf-8")
+    def test_bundle_pins_direct_engine_and_supported_cli(self):
+        bundle = BUNDLE.read_text(encoding="utf-8")
+
+        self.assertIn("engine: direct", bundle)
+        self.assertIn("databricks_cli_version: '>= 1.3.0, < 2.0.0'", bundle)
+
+    def test_plan_capture_is_bounded_structured_and_rejects_static_secrets(self):
+        script = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (PLAN_SCRIPT, PLAN_CORE, PLAN_CAPTURE)
+        )
 
         self.assertIn('"github-oidc"', script)
         self.assertIn('"DATABRICKS_CLIENT_SECRET"', script)
@@ -111,6 +123,10 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn("MAX_CAPTURE_BYTES", script)
         self.assertIn("timeout=timeout_seconds", script)
         self.assertIn("configured_client_id_fingerprint", script)
+        self.assertIn('PLAN_OUTPUT_FILE = "bundle-plan.json"', script)
+        self.assertIn('command.extend(["--output", "json"])', script)
+        self.assertIn("json.loads(completed.stdout)", script)
+        self.assertIn('"format": "json"', script)
         self.assertNotIn("check_output", script)
         self.assertNotIn("check_call", script)
 
