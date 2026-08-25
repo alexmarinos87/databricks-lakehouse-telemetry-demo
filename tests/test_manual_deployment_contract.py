@@ -5,6 +5,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
+APPLY_REVIEW_BRIEF = (
+    REPO_ROOT / "docs" / "change_briefs" / "require_plan_review_before_apply.md"
+)
 PLAN_SCRIPT = REPO_ROOT / "scripts" / "capture_databricks_plan.py"
 PLAN_CORE = REPO_ROOT / "scripts" / "plan_evidence" / "core.py"
 PLAN_CAPTURE = REPO_ROOT / "scripts" / "plan_evidence" / "capture.py"
@@ -207,7 +210,12 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertNotIn("check_call", script)
 
     def test_documentation_requires_reviewed_plan_replay_and_approval(self):
-        documentation = DEPLOYMENT_DOC.read_text(encoding="utf-8")
+        documentation = "\n".join(
+            (
+                DEPLOYMENT_DOC.read_text(encoding="utf-8"),
+                APPLY_REVIEW_BRIEF.read_text(encoding="utf-8"),
+            )
+        )
 
         self.assertIn("A merge to `main` never deploys", documentation)
         self.assertIn("Leave `apply_changes` disabled", documentation)
