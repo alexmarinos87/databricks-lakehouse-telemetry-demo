@@ -115,6 +115,72 @@ issue #44 or the delivery queue:
 A successful repository CI run or bundle plan is not live denied-action
 evidence.
 
+## Evidence manifest and offline admission
+
+Capture the effective development observations in one bounded JSON manifest and
+verify it before representing the least-privilege gate as complete:
+
+```bash
+python3 scripts/verify_identity_privilege_evidence.py \
+  --evidence .bootstrap/evidence/dev/identity-privilege-evidence.json \
+  --output-dir .bootstrap/evidence/dev/identity-privilege-verification
+```
+
+The command consumes the executable
+`config/identity_privilege_contract.json`; it does not contact GitHub or
+Databricks. The manifest is **development evidence only** and must identify
+`target: dev`, the public repository, one exact source commit, a workspace
+fingerprint, distinct deployment/runtime principal fingerprints, and bounded
+observations.
+
+Each observation contains only:
+
+```text
+evidence_id
+identity
+capabilities
+expectation
+outcome
+method
+observed_at_utc
+evidence_sha256
+```
+
+Raw principal IDs, workspace URLs, access tokens, provider responses, table
+values and SQL output do not belong in the manifest.
+
+The five required evidence IDs are admitted through fixed methods:
+
+| Evidence | Required method | Required outcome |
+| --- | --- | --- |
+| deployment principal can assign runtime `run_as` | `resource_readback` | `succeeded` |
+| runtime principal executes job and pipeline | `workflow_run` | `succeeded` |
+| deployment principal cannot select curated tables | `denied_live_attempt` | `denied` |
+| runtime principal cannot deploy the bundle | `permission_readback` | `denied` |
+| deployment principal cannot run the job as itself | `resource_readback` | `denied` |
+
+`denied_live_attempt` is reserved for a bounded read-only operation such as
+`SELECT`; do not perform a mutating bundle deployment merely to prove denial.
+Control-plane denials use permission or resource readback instead.
+
+The verifier rejects malformed or ambiguous manifests, duplicate observations,
+unknown capabilities, identity overlap, production evidence, unsafe paths and
+stale or materially future timestamps. It blocks when required evidence is
+missing, an allowed capability did not succeed, or an expected denial was not
+observed.
+
+Successful or blocked verification writes:
+
+```text
+identity-privilege-verification.json
+identity-privilege-verification.md
+```
+
+The output retains source and manifest digests, fingerprints, stable evidence
+IDs, methods, outcomes and finding categories. It does not transform repository
+CI into live workspace proof: the input observations must still be captured
+from the accepted development environment and reviewed by a human.
+
 ## Failure and rollback
 
 If deployment fails because the deployer cannot assign `run_as`, correct the
