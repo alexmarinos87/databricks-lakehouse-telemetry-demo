@@ -159,6 +159,14 @@ class ManualDeploymentContractTest(unittest.TestCase):
             "MAX_PLAN_BYTES",
             "output_sha256",
             "github-oidc",
+            "databricks-plan-review.json",
+            "databricks-plan-review.md",
+            "plan_review_not_accepted",
+            "plan_review_recomputation_not_accepted",
+            "plan_review_recomputation_mismatch",
+            "load_plan_review_policy",
+            "recompute_plan_review",
+            "render_plan_review_summary",
         ]
         for token in required:
             with self.subTest(token=token):
@@ -193,6 +201,8 @@ class ManualDeploymentContractTest(unittest.TestCase):
         self.assertIn('command.extend(["--output", "json"])', script)
         self.assertIn("json.loads(completed.stdout)", script)
         self.assertIn('"format": "json"', script)
+        self.assertIn("capture_plan_review", script)
+        self.assertIn("databricks-plan-review.json", script)
         self.assertNotIn("check_output", script)
         self.assertNotIn("check_call", script)
 
@@ -213,6 +223,9 @@ class ManualDeploymentContractTest(unittest.TestCase):
             documentation,
         )
         self.assertIn("scripts/verify_bundle_plan_artifact.py", documentation)
+        self.assertIn("databricks-plan-review.json", documentation)
+        self.assertIn("independently recomputes", documentation)
+        self.assertIn("current repository policy", documentation)
         self.assertIn(
             "databricks bundle deploy --target <target> --plan", documentation
         )
