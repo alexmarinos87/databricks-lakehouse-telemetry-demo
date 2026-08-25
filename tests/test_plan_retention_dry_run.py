@@ -34,7 +34,6 @@ def utc(value: datetime) -> str:
 
 class PlanRetentionDryRunTest(unittest.TestCase):
     def make_inventory(self, *, captured_at: datetime = NOW - timedelta(hours=1)) -> dict:
-        relations = []
         days = {
             "quality_check_results_days": 90,
             "quality_metric_history_days": 180,
@@ -42,6 +41,7 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             "forecast_publication_manifest_days": 365,
             "expectation_event_log_days": 90,
         }
+        relations = []
         for index, (key, retention_days) in enumerate(sorted(days.items()), start=1):
             relations.append(
                 {
@@ -67,7 +67,9 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             "captured_at_utc": utc(captured_at),
             "workspace_fingerprint": fingerprint("workspace"),
             "legal_hold": False,
+            "legal_hold_evidence_sha256": fingerprint("legal-hold-state"),
             "active_incident": False,
+            "active_incident_evidence_sha256": fingerprint("incident-state"),
             "recovery": {
                 "verified": True,
                 "evidence_sha256": fingerprint("recovery"),
@@ -76,12 +78,18 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             "relations": relations,
         }
 
-    def write_inventory(self, root: Path, inventory: dict) -> Path:
+    @staticmethod
+    def write_inventory(root: Path, inventory: dict) -> Path:
         path = root / "retention-inventory.json"
         path.write_text(json.dumps(inventory), encoding="utf-8")
         return path
 
-    def test_complete_inventory_produces_ready_sanitized_plan(self):
+    def evaluate(self, inventory: dict) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_inventory(Path(directory), inventory)
+            return m.create_plan(POLICY, path, now=NOW)
+
+    def test_complete_inventory_produces_ready_evidence_bound_sanitized_plan(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             inventory = self.write_inventory(root, self.make_inventory())
@@ -94,19 +102,18 @@ class PlanRetentionDryRunTest(unittest.TestCase):
         self.assertTrue(stored["dry_run_only"])
         self.assertFalse(stored["execution_authorized"])
         self.assertEqual(5, stored["relation_count"])
+        self.assertEqual(fingerprint("legal-hold-state"), stored["legal_hold_evidence_sha256"])
+        self.assertEqual(fingerprint("incident-state"), stored["active_incident_evidence_sha256"])
         self.assertEqual([], stored["findings"])
         self.assertEqual(m.render_markdown(stored), markdown)
         rendered = json.dumps(stored)
-        self.assertNotIn("main.lakehouse", rendered)
-        self.assertNotIn("provider_response", rendered)
-        self.assertNotIn("https://", rendered)
+        for forbidden in ("main.lakehouse", "provider_response", "https://"):
+            self.assertNotIn(forbidden, rendered)
 
     def test_missing_relation_blocks(self):
         inventory = self.make_inventory()
         missing = inventory["relations"].pop()["retention_key"]
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), inventory)
-            plan = m.create_plan(POLICY, path, now=NOW)
+        plan = self.evaluate(inventory)
         self.assertEqual("blocked", plan["status"])
         self.assertIn(
             ("required_retention_relation_missing", missing),
@@ -119,10 +126,7 @@ class PlanRetentionDryRunTest(unittest.TestCase):
         inventory["active_incident"] = True
         inventory["recovery"]["verified"] = False
         inventory["recovery"]["recovery_window_hours"] = 24
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), inventory)
-            plan = m.create_plan(POLICY, path, now=NOW)
-        categories = {item["category"] for item in plan["findings"]}
+        categories = {item["category"] for item in self.evaluate(inventory)["findings"]}
         self.assertIn("legal_hold_is_active", categories)
         self.assertIn("active_incident_blocks_retention", categories)
         self.assertIn("recovery_evidence_is_not_verified", categories)
@@ -134,14 +138,25 @@ class PlanRetentionDryRunTest(unittest.TestCase):
         relation["candidate_latest_at_utc"] = inventory["captured_at_utc"]
         relation["recovery_version"] = relation["current_version"] + 1
         relation["candidate_versions"] = relation["current_version"] + 1
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), inventory)
-            plan = m.create_plan(POLICY, path, now=NOW)
-        categories = {item["category"] for item in plan["findings"]}
+        categories = {item["category"] for item in self.evaluate(inventory)["findings"]}
         self.assertIn("candidate_boundary_is_not_older_than_cutoff", categories)
         self.assertIn("candidate_is_after_latest_commit", categories)
         self.assertIn("recovery_version_exceeds_current", categories)
         self.assertIn("candidate_version_count_exceeds_current", categories)
+
+    def test_candidate_count_shapes_must_be_consistent(self):
+        for field in ("candidate_rows", "candidate_bytes", "candidate_versions"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                inventory = self.make_inventory()
+                inventory["relations"][0][field] = 0
+                path = self.write_inventory(Path(directory), inventory)
+                with self.assertRaisesRegex(m.PlanError, "candidate_counts_are_inconsistent"):
+                    m.create_plan(POLICY, path, now=NOW)
+
+        zero = self.make_inventory()
+        for field in ("candidate_rows", "candidate_bytes", "candidate_versions"):
+            zero["relations"][0][field] = 0
+        self.assertEqual("ready", self.evaluate(zero)["status"])
 
     def test_stale_and_future_inventory_block(self):
         for captured_at, expected in (
@@ -149,50 +164,50 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             (NOW + timedelta(minutes=6), "inventory_is_in_future"),
         ):
             with self.subTest(expected=expected):
-                inventory = self.make_inventory(captured_at=captured_at)
-                with tempfile.TemporaryDirectory() as directory:
-                    path = self.write_inventory(Path(directory), inventory)
-                    plan = m.create_plan(POLICY, path, now=NOW)
-                self.assertIn(expected, {item["category"] for item in plan["findings"]})
+                categories = {
+                    item["category"]
+                    for item in self.evaluate(self.make_inventory(captured_at=captured_at))[
+                        "findings"
+                    ]
+                }
+                self.assertIn(expected, categories)
 
-    def test_duplicate_unknown_and_raw_fields_fail_closed(self):
+    def test_control_digests_duplicate_unknown_and_raw_fields_fail_closed(self):
+        missing_hold_digest = self.make_inventory()
+        missing_hold_digest.pop("legal_hold_evidence_sha256")
         duplicate = self.make_inventory()
         duplicate["relations"].append(dict(duplicate["relations"][0]))
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), duplicate)
-            with self.assertRaisesRegex(m.PlanError, "retention_key_duplicate"):
-                m.create_plan(POLICY, path, now=NOW)
-
         unknown = self.make_inventory()
         unknown["relations"][0]["retention_key"] = "raw_telemetry_days"
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), unknown)
-            with self.assertRaisesRegex(m.PlanError, "retention_key_unsupported"):
-                m.create_plan(POLICY, path, now=NOW)
-
         raw = self.make_inventory()
         raw["table_name"] = "main.lakehouse_demo_dev.secret"
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), raw)
-            with self.assertRaisesRegex(m.PlanError, "inventory_shape_invalid"):
-                m.create_plan(POLICY, path, now=NOW)
+        cases = (
+            (missing_hold_digest, "inventory_shape_invalid"),
+            (duplicate, "retention_key_duplicate"),
+            (unknown, "retention_key_unsupported"),
+            (raw, "inventory_shape_invalid"),
+        )
+        for inventory, category in cases:
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as directory:
+                path = self.write_inventory(Path(directory), inventory)
+                with self.assertRaisesRegex(m.PlanError, category):
+                    m.create_plan(POLICY, path, now=NOW)
 
     def test_relation_fingerprint_and_numeric_bounds_fail_closed(self):
-        inventory = self.make_inventory()
-        inventory["relations"][1]["relation_fingerprint"] = inventory["relations"][0][
+        duplicate = self.make_inventory()
+        duplicate["relations"][1]["relation_fingerprint"] = duplicate["relations"][0][
             "relation_fingerprint"
         ]
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), inventory)
-            with self.assertRaisesRegex(m.PlanError, "relation_fingerprint_duplicate"):
-                m.create_plan(POLICY, path, now=NOW)
-
-        inventory = self.make_inventory()
-        inventory["relations"][0]["candidate_bytes"] = m.MAX_BYTES + 1
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.write_inventory(Path(directory), inventory)
-            with self.assertRaisesRegex(m.PlanError, "candidate_bytes_invalid"):
-                m.create_plan(POLICY, path, now=NOW)
+        too_large = self.make_inventory()
+        too_large["relations"][0]["candidate_bytes"] = m.MAX_BYTES + 1
+        for inventory, category in (
+            (duplicate, "relation_fingerprint_duplicate"),
+            (too_large, "candidate_bytes_invalid"),
+        ):
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as directory:
+                path = self.write_inventory(Path(directory), inventory)
+                with self.assertRaisesRegex(m.PlanError, category):
+                    m.create_plan(POLICY, path, now=NOW)
 
     def test_non_dev_target_and_symbolic_links_are_rejected(self):
         inventory = self.make_inventory()
@@ -209,7 +224,6 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             link.symlink_to(real)
             with self.assertRaisesRegex(m.PlanError, "inventory_file_invalid"):
                 m.create_plan(POLICY, link, now=NOW)
-
             plan = m.create_plan(POLICY, real, now=NOW)
             target = root / "target"
             target.mkdir()
@@ -218,20 +232,21 @@ class PlanRetentionDryRunTest(unittest.TestCase):
             with self.assertRaisesRegex(m.PlanError, "output_directory_is_symlink"):
                 m.write_outputs(output, plan)
 
-    def test_source_and_docs_keep_plan_non_mutating(self):
+    def test_source_and_docs_keep_plan_evidence_bound_and_non_mutating(self):
         source = (ROOT / "scripts" / "plan_retention_dry_run.py").read_text()
-        brief = (
-            ROOT / "docs" / "change_briefs" / "plan_retention_dry_run.md"
-        ).read_text()
+        brief = (ROOT / "docs" / "change_briefs" / "plan_retention_dry_run.md").read_text()
         guide = (ROOT / "docs" / "retention_dry_run.md").read_text()
-
-        self.assertNotIn("subprocess", source)
-        self.assertNotIn("urllib", source)
-        self.assertNotIn("requests.", source)
-        self.assertNotIn("DATABRICKS_TOKEN", source)
+        for forbidden in ("subprocess", "urllib", "requests.", "DATABRICKS_TOKEN"):
+            self.assertNotIn(forbidden, source)
         self.assertIn('"dry_run_only": True', source)
         self.assertIn('"execution_authorized": False', source)
+        self.assertIn("legal_hold_evidence_digest_invalid", source)
+        self.assertIn("active_incident_evidence_digest_invalid", source)
+        self.assertIn("candidate_counts_are_inconsistent", source)
         self.assertIn("never authorizes mutation", brief)
+        self.assertIn("protected evidence digests", brief)
+        self.assertIn("legal_hold_evidence_sha256", guide)
+        self.assertIn("active_incident_evidence_sha256", guide)
         self.assertIn("does not execute `DELETE`, `VACUUM`, or `DROP`", guide)
         self.assertIn("Human approval is still required", guide)
 
