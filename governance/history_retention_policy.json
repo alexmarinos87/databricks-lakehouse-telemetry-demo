@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "dry_run_only": true,
+  "inventory_max_age_hours": 24,
+  "minimum_recovery_window_hours": 168,
+  "max_candidates_per_run": 500,
+  "datasets": {
+    "quality_check_results": {
+      "retention_days": 90,
+      "minimum_committed_entries": 2
+    },
+    "quality_metric_history": {
+      "retention_days": 180,
+      "minimum_committed_entries": 2
+    },
+    "forecast_history": {
+      "retention_days": 180,
+      "minimum_committed_entries": 2
+    },
+    "forecast_publication_manifest": {
+      "retention_days": 365,
+      "minimum_committed_entries": 3
+    },
+    "expectation_event_log": {
+      "retention_days": 90,
+      "minimum_committed_entries": 2
+    }
+  }
+}
