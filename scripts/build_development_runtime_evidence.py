@@ -23,7 +23,14 @@ def _load_sibling(name: str, filename: str):
     return module
 
 
-core = _load_sibling("_development_runtime_package_core", "development_runtime_package_core.py")
+core = _load_sibling(
+    "_development_runtime_package_core",
+    "development_runtime_package_core.py",
+)
+integrity = _load_sibling(
+    "_runtime_package_integrity",
+    "runtime_package_integrity.py",
+)
 io = core.io
 verifier = core.verifier
 EXPECTED_REPOSITORY = verifier.EXPECTED_REPOSITORY
@@ -40,7 +47,11 @@ class PackageError(RuntimeError):
 def _translate(callable_, *args, **kwargs):
     try:
         return callable_(*args, **kwargs)
-    except (core.PackageError, io.EvidenceIOError) as error:
+    except (
+        core.PackageError,
+        io.EvidenceIOError,
+        integrity.IntegrityError,
+    ) as error:
         raise PackageError(error.category) from None
 
 
@@ -60,11 +71,20 @@ def render_summary(
             f"- Metadata: `{metadata_sha256}`",
             f"- Protected artifacts: `{artifact_count}`",
             f"- Protected artifact bytes: `{aggregate_bytes}`",
-            f"- Evidence families: `{report['evidence_family_count']}/{report['required_evidence_family_count']}`",
-            f"- Assertions: `{report['assertion_count']}/{report['required_assertion_count']}`",
+            (
+                "- Evidence families: "
+                f"`{report['evidence_family_count']}/"
+                f"{report['required_evidence_family_count']}`"
+            ),
+            (
+                "- Assertions: "
+                f"`{report['assertion_count']}/"
+                f"{report['required_assertion_count']}`"
+            ),
             "",
             "The package contains no protected paths or contents, raw principal IDs, "
-            "resource names, table contents, provider responses, workspace URLs or credentials.",
+            "resource names, table contents, provider responses, workspace URLs or "
+            "credentials.",
             "",
         ]
     )
@@ -80,65 +100,67 @@ def build_package(
     max_execution_hours: float = verifier.DEFAULT_MAX_EXECUTION_HOURS,
 ) -> dict[str, Any]:
     document, metadata_bytes = _translate(core.load_metadata, metadata_path)
-    digests, aggregate_bytes = _translate(core.hash_artifacts, document, artifact_root)
-    package_manifest = core.manifest(document, digests)
     _translate(
-        io.ensure_output_outside_root,
+        integrity.validate_artifact_roles,
+        document,
+        verifier=verifier,
+        io=io,
+    )
+    digests, aggregate_bytes = _translate(
+        core.hash_artifacts,
+        document,
+        artifact_root,
+    )
+    package_manifest = core.manifest(document, digests)
+
+    transaction = integrity.PackageDirectoryTransaction(
         output_directory,
         artifact_root,
-        "runtime_package_output",
+        io=io,
     )
-    directory = _translate(
-        io.prepare_output_directory,
-        output_directory,
-        "runtime_package_output",
-    )
-    candidate = directory / f".{OUTPUT_MANIFEST}.candidate"
-    if candidate.exists() or candidate.is_symlink():
-        raise PackageError("runtime_package_candidate_manifest_exists")
-    _translate(
-        io.write_atomic,
-        candidate,
-        json.dumps(package_manifest, indent=2, sort_keys=True) + "\n",
-        "runtime_package",
-    )
-    published = False
     try:
-        try:
-            report = verifier.verify_evidence(
+        with transaction:
+            directory = transaction.directory
+            candidate = directory / f".{OUTPUT_MANIFEST}.candidate"
+            _translate(
+                io.write_atomic,
                 candidate,
-                now=now,
-                max_age_hours=max_age_hours,
-                max_execution_hours=max_execution_hours,
+                json.dumps(package_manifest, indent=2, sort_keys=True) + "\n",
+                "runtime_package",
             )
-            verifier.write_outputs(directory, report)
-        except verifier.VerificationError as error:
-            raise PackageError(error.category) from None
-        _translate(
-            io.publish_candidate,
-            candidate,
-            directory / OUTPUT_MANIFEST,
-            "runtime_package",
-        )
-        published = True
-    finally:
-        if not published:
             try:
-                candidate.unlink(missing_ok=True)
-            except OSError:
-                pass
-    metadata_sha256 = io.sha256(metadata_bytes)
-    _translate(
-        io.write_atomic,
-        directory / OUTPUT_SUMMARY,
-        render_summary(
-            report=report,
-            metadata_sha256=metadata_sha256,
-            artifact_count=len(digests),
-            aggregate_bytes=aggregate_bytes,
-        ),
-        "runtime_package",
-    )
+                report = verifier.verify_evidence(
+                    candidate,
+                    now=now,
+                    max_age_hours=max_age_hours,
+                    max_execution_hours=max_execution_hours,
+                )
+                verifier.write_outputs(directory, report)
+            except verifier.VerificationError as error:
+                raise PackageError(error.category) from None
+
+            _translate(
+                io.publish_candidate,
+                candidate,
+                directory / OUTPUT_MANIFEST,
+                "runtime_package",
+            )
+            metadata_sha256 = io.sha256(metadata_bytes)
+            _translate(
+                io.write_atomic,
+                directory / OUTPUT_SUMMARY,
+                render_summary(
+                    report=report,
+                    metadata_sha256=metadata_sha256,
+                    artifact_count=len(digests),
+                    aggregate_bytes=aggregate_bytes,
+                ),
+                "runtime_package",
+            )
+            _translate(transaction.commit)
+    except integrity.IntegrityError as error:
+        raise PackageError(error.category) from None
+
     return {
         "manifest": package_manifest,
         "verification": report,
