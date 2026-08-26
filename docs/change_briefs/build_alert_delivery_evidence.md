@@ -75,6 +75,11 @@ The generated manifest is then passed directly to
 `scripts/verify_alert_delivery_evidence.py`. A blocked verifier result remains
 blocked; the package builder never relabels it as successful.
 
+The verifier manifest is first written to a hidden candidate path. It is published
+under the public output name only after the accepted verifier has parsed and
+classified it. Invalid verifier input removes the candidate and leaves no public
+manifest.
+
 ## Evidence boundary
 
 The package retains:
@@ -106,8 +111,10 @@ The builder:
 - performs no network or subprocess call;
 - reads no credential environment variable;
 - rejects symbolic-link metadata, roots, path components and outputs;
+- requires the public output directory to remain outside the protected artifact root;
 - uses `O_NOFOLLOW` where supported;
 - bounds metadata and protected-artifact bytes;
+- publishes no public manifest when the accepted verifier rejects the input;
 - writes the manifest and summary atomically;
 - delegates policy and semantic checks to the accepted verifier.
 
@@ -127,6 +134,8 @@ Tests cover:
 - path traversal, absolute paths, backslashes and symbolic links;
 - raw endpoint fields and caller-supplied verifier digests;
 - preservation of a blocked verifier result;
+- output-root separation so package files cannot contaminate protected evidence;
+- invalid verifier input cleanup with no public manifest or candidate residue;
 - symbolic-link metadata, roots and output directories;
 - absence of network, subprocess and notification-delivery surfaces.
 

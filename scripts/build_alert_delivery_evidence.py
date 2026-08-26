@@ -179,6 +179,21 @@ def _load_metadata(path: Path) -> tuple[dict[str, Any], bytes]:
     return document, raw
 
 
+def _ensure_output_outside_protected_root(
+    output_directory: Path, artifact_root: Path
+) -> None:
+    try:
+        resolved_root = artifact_root.resolve(strict=True)
+        resolved_output = output_directory.resolve(strict=False)
+    except OSError:
+        raise PackageError("alert_package_output_separation_unavailable") from None
+    try:
+        resolved_output.relative_to(resolved_root)
+    except ValueError:
+        return
+    raise PackageError("alert_package_output_inside_protected_root")
+
+
 def _prepare_output_directory(path: Path) -> Path:
     if path.exists() and path.is_symlink():
         raise PackageError("alert_package_output_directory_is_symlink")
@@ -205,6 +220,15 @@ def _write_atomic(path: Path, content: str) -> None:
             temporary.unlink(missing_ok=True)
         except OSError:
             pass
+        raise PackageError("alert_package_output_write_failed") from None
+
+
+def _publish_candidate(candidate: Path, final_path: Path) -> None:
+    if final_path.exists() and (final_path.is_symlink() or not final_path.is_file()):
+        raise PackageError("alert_package_output_path_invalid")
+    try:
+        candidate.replace(final_path)
+    except OSError:
         raise PackageError("alert_package_output_write_failed") from None
 
 
@@ -261,30 +285,39 @@ def build_package(
     )
 
     manifest = {
-        key: value
-        for key, value in metadata.items()
-        if key != "protected_artifact"
+        key: value for key, value in metadata.items() if key != "protected_artifact"
     }
     manifest["evidence_sha256"] = artifact_sha256
     _expect(set(manifest) == _MANIFEST_KEYS, "alert_package_manifest_shape_invalid")
 
+    _ensure_output_outside_protected_root(output_directory, artifact_root)
     directory = _prepare_output_directory(output_directory)
-    manifest_path = directory / OUTPUT_MANIFEST
-    _write_atomic(
-        manifest_path,
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-    )
+    manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    candidate_path = directory / f".{OUTPUT_MANIFEST}.candidate"
+    if candidate_path.exists() or candidate_path.is_symlink():
+        raise PackageError("alert_package_candidate_manifest_exists")
+    _write_atomic(candidate_path, manifest_text)
+    published = False
     try:
-        verification = _verifier.verify_evidence(
-            policy_path,
-            manifest_path,
-            repository_root=repository_root,
-            now=now,
-            max_age_hours=max_age_hours,
-        )
-        _verifier.write_outputs(directory, verification)
-    except _verifier.AlertEvidenceError as error:
-        raise PackageError(error.category) from None
+        try:
+            verification = _verifier.verify_evidence(
+                policy_path,
+                candidate_path,
+                repository_root=repository_root,
+                now=now,
+                max_age_hours=max_age_hours,
+            )
+            _verifier.write_outputs(directory, verification)
+        except _verifier.AlertEvidenceError as error:
+            raise PackageError(error.category) from None
+        _publish_candidate(candidate_path, directory / OUTPUT_MANIFEST)
+        published = True
+    finally:
+        if not published:
+            try:
+                candidate_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     metadata_sha256 = _sha256(metadata_bytes)
     _write_atomic(

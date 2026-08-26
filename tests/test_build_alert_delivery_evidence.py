@@ -182,6 +182,36 @@ class BuildAlertDeliveryEvidenceTest(unittest.TestCase):
             {item["category"] for item in result["verification"]["findings"]},
         )
 
+    def test_invalid_verifier_input_leaves_no_public_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata, artifact_root = self.setup_inputs(root)
+            document = json.loads(metadata.read_text())
+            document["source_commit"] = "not-a-commit"
+            metadata.write_text(json.dumps(document))
+            with self.assertRaisesRegex(m.PackageError, "source_commit_invalid"):
+                m.build_package(
+                    metadata,
+                    artifact_root,
+                    root / "output",
+                    repository_root=ROOT,
+                    now=NOW,
+                )
+            self.assertFalse((root / "output" / m.OUTPUT_MANIFEST).exists())
+            self.assertFalse(
+                (root / "output" / m._verifier.OUTPUT_JSON).exists()
+            )
+            self.assertEqual([], list((root / "output").glob("*.candidate")))
+
+    def test_output_inside_protected_root_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata, artifact_root = self.setup_inputs(root)
+            output = artifact_root / "public-package"
+            with self.assertRaisesRegex(m.PackageError, "output_inside_protected_root"):
+                m.build_package(metadata, artifact_root, output, now=NOW)
+            self.assertFalse(output.exists())
+
     def test_symlink_root_metadata_and_output_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -220,6 +250,8 @@ class BuildAlertDeliveryEvidenceTest(unittest.TestCase):
         self.assertNotIn("webhook", source.lower())
         self.assertIn("expected_sha256", source)
         self.assertIn("O_NOFOLLOW", source)
+        self.assertIn("output_inside_protected_root", source)
+        self.assertIn(".candidate", source)
 
 
 if __name__ == "__main__":
