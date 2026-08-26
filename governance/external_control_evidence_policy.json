@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target": "dev",
+  "repository": "alexmarinos87/databricks-lakehouse-telemetry-demo",
+  "maximum_evidence_age_hours": 72,
+  "maximum_capture_spread_hours": 4,
+  "controls": [
+    {
+      "control_id": "github_governance",
+      "verifier_path": "scripts/verify_github_governance.py"
+    },
+    {
+      "control_id": "databricks_federation",
+      "verifier_path": "scripts/verify_databricks_federation.py"
+    },
+    {
+      "control_id": "identity_privilege",
+      "verifier_path": "scripts/verify_identity_privilege_evidence.py"
+    }
+  ]
+}
