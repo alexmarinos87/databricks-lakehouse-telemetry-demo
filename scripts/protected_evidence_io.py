@@ -5,12 +5,19 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 SHA256_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 ARTIFACT_ID_PATTERN = re.compile(r"[a-z][a-z0-9_-]{2,127}\Z")
+_EXTERNAL_CONTROL_OUTPUT_PREFIX = "external_control_index_output"
+_EXTERNAL_CONTROL_WRITE_PREFIX = "external_control_index"
+_EXTERNAL_CONTROL_JSON = "external-control-evidence-index.json"
+_EXTERNAL_CONTROL_MARKDOWN = "external-control-evidence-index.md"
+_external_control_report_root: Path | None = None
+_transactional_directories: dict[Path, Path] = {}
 
 
 class EvidenceIOError(RuntimeError):
@@ -94,6 +101,8 @@ def canonical_relative(value: Any, *, invalid: str, noncanonical: str) -> str:
 
 
 def protected_path(root: Path, relative_value: Any, *, prefix: str) -> Path:
+    global _external_control_report_root
+
     relative = PurePosixPath(
         canonical_relative(
             relative_value,
@@ -119,9 +128,12 @@ def protected_path(root: Path, relative_value: Any, *, prefix: str) -> Path:
     if not candidate.is_file():
         raise EvidenceIOError(f"{prefix}_not_regular")
     try:
-        candidate.resolve(strict=True).relative_to(root.resolve(strict=True))
+        resolved_root = root.resolve(strict=True)
+        candidate.resolve(strict=True).relative_to(resolved_root)
     except (OSError, ValueError):
         raise EvidenceIOError(f"{prefix}_outside_root") from None
+    if prefix.startswith("external_control_") and prefix.endswith("_report"):
+        _external_control_report_root = resolved_root
     return candidate
 
 
@@ -138,7 +150,53 @@ def ensure_output_outside_root(output: Path, root: Path, category: str) -> None:
     raise EvidenceIOError(f"{category}_inside_protected_root")
 
 
+def _transaction_key(path: Path) -> Path:
+    return path.absolute()
+
+
+def _cleanup_transaction(staging: Path) -> None:
+    _transactional_directories.pop(_transaction_key(staging), None)
+    try:
+        if staging.is_symlink():
+            staging.unlink()
+        elif staging.exists():
+            shutil.rmtree(staging)
+    except OSError:
+        pass
+
+
+def _prepare_transactional_directory(path: Path, prefix: str) -> Path:
+    if _external_control_report_root is not None:
+        ensure_output_outside_root(path, _external_control_report_root, prefix)
+    if not path.name or path.name in {".", ".."}:
+        raise EvidenceIOError(f"{prefix}_directory_name_invalid")
+    if path.exists() or path.is_symlink():
+        raise EvidenceIOError(f"{prefix}_directory_exists")
+    parent = path.parent
+    if parent.exists() and parent.is_symlink():
+        raise EvidenceIOError(f"{prefix}_parent_is_symlink")
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise EvidenceIOError(f"{prefix}_parent_unavailable") from None
+    if parent.is_symlink() or not parent.is_dir():
+        raise EvidenceIOError(f"{prefix}_parent_invalid")
+    staging = parent / f".{path.name}.staging"
+    if staging.exists() or staging.is_symlink():
+        raise EvidenceIOError(f"{prefix}_staging_exists")
+    try:
+        staging.mkdir(mode=0o700)
+    except OSError:
+        raise EvidenceIOError(f"{prefix}_staging_unavailable") from None
+    if staging.is_symlink() or not staging.is_dir():
+        raise EvidenceIOError(f"{prefix}_staging_invalid")
+    _transactional_directories[_transaction_key(staging)] = path
+    return staging
+
+
 def prepare_output_directory(path: Path, prefix: str) -> Path:
+    if prefix == _EXTERNAL_CONTROL_OUTPUT_PREFIX:
+        return _prepare_transactional_directory(path, prefix)
     if path.exists() and path.is_symlink():
         raise EvidenceIOError(f"{prefix}_directory_is_symlink")
     try:
@@ -150,7 +208,7 @@ def prepare_output_directory(path: Path, prefix: str) -> Path:
     return path
 
 
-def write_atomic(path: Path, content: str, prefix: str) -> None:
+def _write_file_atomic(path: Path, content: str, prefix: str) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     if temporary.exists() or temporary.is_symlink():
         raise EvidenceIOError(f"{prefix}_temporary_output_exists")
@@ -165,6 +223,37 @@ def write_atomic(path: Path, content: str, prefix: str) -> None:
         except OSError:
             pass
         raise EvidenceIOError(f"{prefix}_output_write_failed") from None
+
+
+def _write_transactional_index(path: Path, content: str, prefix: str) -> None:
+    staging = path.parent
+    final_directory = _transactional_directories.get(_transaction_key(staging))
+    if final_directory is None:
+        raise EvidenceIOError(f"{prefix}_transaction_missing")
+    try:
+        _write_file_atomic(path, content, prefix)
+        if path.name != _EXTERNAL_CONTROL_MARKDOWN:
+            return
+        json_path = staging / _EXTERNAL_CONTROL_JSON
+        if json_path.is_symlink() or not json_path.is_file():
+            raise EvidenceIOError(f"{prefix}_transaction_incomplete")
+        if final_directory.exists() or final_directory.is_symlink():
+            raise EvidenceIOError(f"{prefix}_output_directory_exists")
+        staging.replace(final_directory)
+        _transactional_directories.pop(_transaction_key(staging), None)
+    except EvidenceIOError:
+        _cleanup_transaction(staging)
+        raise
+    except OSError:
+        _cleanup_transaction(staging)
+        raise EvidenceIOError(f"{prefix}_output_publish_failed") from None
+
+
+def write_atomic(path: Path, content: str, prefix: str) -> None:
+    if prefix == _EXTERNAL_CONTROL_WRITE_PREFIX:
+        _write_transactional_index(path, content, prefix)
+        return
+    _write_file_atomic(path, content, prefix)
 
 
 def publish_candidate(candidate: Path, final_path: Path, prefix: str) -> None:
