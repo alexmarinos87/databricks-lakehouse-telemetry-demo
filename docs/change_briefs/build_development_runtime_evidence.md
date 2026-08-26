@@ -23,7 +23,7 @@ python3 scripts/build_development_runtime_evidence.py \
   --output-dir .bootstrap/evidence/dev/runtime-package
 ```
 
-The command writes:
+The command writes one new output directory containing:
 
 ```text
 development-runtime-evidence.json
@@ -32,8 +32,13 @@ development-runtime-verification.json
 development-runtime-verification.md
 ```
 
-It performs no deployment, job, pipeline, SQL, permission, checkpoint, alert,
-retention, scheduler or production operation.
+The output directory must not already exist. The package is assembled under a
+private staging directory and the complete directory is published with one atomic
+rename. A failure cannot overwrite an earlier package or leave a partial public
+package.
+
+The command performs no deployment, job, pipeline, SQL, permission, checkpoint,
+alert, retention, scheduler or production operation.
 
 ## Protected artifact registry
 
@@ -56,9 +61,33 @@ artifact references. The builder binds protected evidence for:
 - all sixteen mandatory assertions;
 - rollback execution and recovery point.
 
-An artifact ID may be referenced by more than one assertion when one protected
-record intentionally proves several controls. Each registered path is unique,
-every reference must resolve, and unused registry entries fail closed.
+Each registered path is unique, every reference must resolve, and unused registry
+entries fail closed.
+
+## Evidence-role separation
+
+A protected file cannot satisfy unrelated proof roles merely because several
+metadata fields reference the same artifact ID.
+
+The following anchor records must all be distinct and cannot be reused by a
+family or assertion:
+
+```text
+apply approval
+accepted plan
+accepted plan review
+execution record
+rollback record
+recovery point
+```
+
+Each runtime evidence family must also have its own protected record. Assertions
+may share a record only with other assertions for the same governed family, or
+with that same family's evidence record. Cross-family sharing is rejected.
+
+This preserves legitimate reuse, such as one quality report supporting several
+quality assertions, without allowing one generic file to stand in for approval,
+plan, execution, grants and rollback evidence simultaneously.
 
 ## Exact package completeness
 
@@ -85,7 +114,8 @@ metadata rather than a partial successful package.
 Protected paths must be relative to the supplied root. The builder rejects:
 
 - absolute paths and `..` traversal;
-- non-canonical aliases such as repeated separators, `.` components or trailing slashes;
+- non-canonical aliases such as repeated separators, `.` components or trailing
+  slashes;
 - backslashes and control characters;
 - symbolic-link roots, path components and files;
 - non-regular, empty or oversized files;
@@ -101,12 +131,20 @@ the protected artifact root.
 ## Publication sequence
 
 The builder calculates all protected-artifact digests and generates the sanitized
-verifier manifest without artifact IDs or paths. It writes that manifest under a
-hidden candidate name and invokes the accepted
-`verify_development_runtime_evidence.py` implementation.
+verifier manifest without artifact IDs or paths.
 
-The public manifest is published only after the verifier has parsed and classified
-the candidate. Invalid verifier input deletes the candidate and leaves no public
+It then:
+
+1. creates a private sibling staging directory;
+2. writes the candidate manifest inside that directory;
+3. invokes the accepted `verify_development_runtime_evidence.py` implementation;
+4. writes verification JSON and Markdown;
+5. publishes the sanitized manifest inside the staging directory;
+6. writes the package summary;
+7. atomically renames the complete staging directory to the requested output
+   path.
+
+Invalid verifier input removes the staging directory and leaves no public
 manifest. A structurally valid blocked result remains blocked and cannot be
 relabeled by the builder.
 
@@ -142,10 +180,14 @@ Tests cover:
 - expected-digest mismatch before publication;
 - unknown, duplicate and unused artifact entries;
 - non-canonical paths that could otherwise alias the same protected file;
-- explicit shared-artifact references;
 - exact family and assertion descriptor sets;
 - preservation of a blocked verifier result;
-- invalid verifier input with no public or candidate manifest;
+- distinct approval, plan, execution, rollback and recovery evidence;
+- family-level and cross-family artifact-reuse boundaries;
+- legitimate sharing within one governed evidence family;
+- an existing output directory that must not be overwritten;
+- late verifier-output failure with no partial public package;
+- invalid verifier input with no public or staging residue;
 - traversal, symbolic links and protected-root output contamination;
 - absence of network, subprocess, credential and provider-operation surfaces.
 
