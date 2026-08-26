@@ -170,7 +170,9 @@ def _prepare_transactional_directory(path: Path, prefix: str) -> Path:
         ensure_output_outside_root(path, _external_control_report_root, prefix)
     if not path.name or path.name in {".", ".."}:
         raise EvidenceIOError(f"{prefix}_directory_name_invalid")
-    if path.exists() or path.is_symlink():
+    if path.is_symlink():
+        raise EvidenceIOError(f"{prefix}_directory_is_symlink")
+    if path.exists():
         raise EvidenceIOError(f"{prefix}_directory_exists")
     parent = path.parent
     if parent.exists() and parent.is_symlink():
@@ -182,7 +184,9 @@ def _prepare_transactional_directory(path: Path, prefix: str) -> Path:
     if parent.is_symlink() or not parent.is_dir():
         raise EvidenceIOError(f"{prefix}_parent_invalid")
     staging = parent / f".{path.name}.staging"
-    if staging.exists() or staging.is_symlink():
+    if staging.is_symlink():
+        raise EvidenceIOError(f"{prefix}_staging_is_symlink")
+    if staging.exists():
         raise EvidenceIOError(f"{prefix}_staging_exists")
     try:
         staging.mkdir(mode=0o700)
@@ -237,7 +241,9 @@ def _write_transactional_index(path: Path, content: str, prefix: str) -> None:
         json_path = staging / _EXTERNAL_CONTROL_JSON
         if json_path.is_symlink() or not json_path.is_file():
             raise EvidenceIOError(f"{prefix}_transaction_incomplete")
-        if final_directory.exists() or final_directory.is_symlink():
+        if final_directory.is_symlink():
+            raise EvidenceIOError(f"{prefix}_output_directory_is_symlink")
+        if final_directory.exists():
             raise EvidenceIOError(f"{prefix}_output_directory_exists")
         staging.replace(final_directory)
         _transactional_directories.pop(_transaction_key(staging), None)
