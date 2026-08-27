@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "repository": "alexmarinos87/databricks-lakehouse-telemetry-demo",
+  "stages": [
+    {
+      "order": 1,
+      "stage_id": "external_readiness",
+      "title": "Confirm external readiness",
+      "mode": "read_only",
+      "entrypoints": [
+        "scripts/check_external_readiness.py"
+      ],
+      "owner_command": null,
+      "requires": [],
+      "authorizes": []
+    },
+    {
+      "order": 2,
+      "stage_id": "effective_external_controls",
+      "title": "Verify effective external controls",
+      "mode": "read_only",
+      "entrypoints": [
+        "scripts/verify_github_governance.py",
+        "scripts/verify_databricks_federation.py",
+        "scripts/verify_identity_privilege_evidence.py"
+      ],
+      "owner_command": null,
+      "requires": [
+        "external_readiness"
+      ],
+      "authorizes": []
+    },
+    {
+      "order": 3,
+      "stage_id": "external_control_index",
+      "title": "Index one coherent control state",
+      "mode": "offline_evidence",
+      "entrypoints": [
+        "scripts/build_external_control_evidence_index.py"
+      ],
+      "owner_command": null,
+      "requires": [
+        "effective_external_controls"
+      ],
+      "authorizes": []
+    },
+    {
+      "order": 4,
+      "stage_id": "development_plan",
+      "title": "Capture and review a plan-only run",
+      "mode": "plan_only",
+      "entrypoints": [],
+      "owner_command": "/databricks-plan dev",
+      "requires": [
+        "external_control_index"
+      ],
+      "authorizes": []
+    },
+    {
+      "order": 5,
+      "stage_id": "development_runtime_evidence",
+      "title": "Package controlled development-runtime evidence",
+      "mode": "offline_evidence",
+      "entrypoints": [
+        "scripts/build_development_runtime_evidence.py"
+      ],
+      "owner_command": null,
+      "requires": [
+        "development_plan"
+      ],
+      "authorizes": []
+    },
+    {
+      "order": 6,
+      "stage_id": "operational_evidence",
+      "title": "Verify operational evidence separately",
+      "mode": "offline_evidence",
+      "entrypoints": [
+        "scripts/build_alert_delivery_evidence.py",
+        "scripts/plan_history_retention.py"
+      ],
+      "owner_command": null,
+      "requires": [
+        "development_runtime_evidence"
+      ],
+      "authorizes": []
+    }
+  ]
+}
