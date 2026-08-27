@@ -15,6 +15,11 @@
     "file": "machine_reliability_scorecard.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Maintenance cost drivers",
+    "description": "Monthly maintenance cost, attributed downtime, failure intensity and top recorded part by client, site and model.",
+    "file": "maintenance_cost_drivers.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Failure events by fault",
     "description": "Warehouse-backed failure counts, affected machines, downtime and maintenance cost by fault.",
     "file": "failure_events_by_fault.sql"
