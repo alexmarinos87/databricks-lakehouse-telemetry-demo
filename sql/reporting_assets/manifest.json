@@ -15,6 +15,11 @@
     "file": "machine_reliability_scorecard.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Monthly reliability trends",
+    "description": "Monthly uptime, attributed downtime, failures, cost and consecutive-period changes by client, site and model.",
+    "file": "monthly_reliability_trends.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Maintenance cost drivers",
     "description": "Monthly maintenance cost, attributed downtime, failure intensity and top recorded part by client, site and model.",
     "file": "maintenance_cost_drivers.sql"
