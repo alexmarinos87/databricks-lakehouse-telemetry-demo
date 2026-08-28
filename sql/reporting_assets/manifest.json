@@ -5,6 +5,11 @@
     "file": "daily_uptime_by_site_model.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Machine observation continuity",
+    "description": "Observed-date continuity, calendar gaps and duration evidence by machine and model.",
+    "file": "machine_observation_continuity.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Client asset summary",
     "description": "Client-facing asset uptime, downtime, failure count and failure-related cost.",
     "file": "client_asset_summary.sql"
