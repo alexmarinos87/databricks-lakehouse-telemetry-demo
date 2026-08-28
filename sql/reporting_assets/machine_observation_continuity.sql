@@ -28,10 +28,8 @@ sequenced_observations AS (
 observation_gaps AS (
   SELECT
     sequenced_observations.*,
-    CASE
-      WHEN previous_observed_date IS NULL THEN NULL
-      ELSE DATEDIFF(event_date, previous_observed_date)
-    END AS observed_date_gap_days,
+    DATEDIFF(event_date, previous_observed_date)
+      AS observed_date_gap_days,
     CASE
       WHEN previous_observed_date IS NOT NULL
        AND DATEDIFF(event_date, previous_observed_date) > 1
