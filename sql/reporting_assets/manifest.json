@@ -30,6 +30,11 @@
     "file": "failure_events_by_fault.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Fault impact concentration",
+    "description": "Monthly fault ranking and cumulative shares of observed failures, attributed downtime and maintenance cost.",
+    "file": "fault_impact_concentration.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Downtime forecast",
     "description": "Next-horizon downtime forecast with validation metrics and interval coverage.",
     "file": "downtime_forecast.sql"
