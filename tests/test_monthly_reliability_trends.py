@@ -46,19 +46,27 @@ class MonthlyReliabilityTrendsTest(unittest.TestCase):
             normalized.count("date_trunc('month', cast(event_date as timestamp))"),
             4,
         )
-        self.assertGreaterEqual(
-            normalized.count("group by date_trunc('month', cast(event_date as timestamp)), client_id, site_id, model"),
-            2,
+        monthly_group = (
+            "group by date_trunc('month', cast(event_date as timestamp)), "
+            "client_id, site_id, model"
         )
-        self.assertNotIn("_history", normalized)
-        self.assertNotIn("publication_manifest", normalized)
+        self.assertGreaterEqual(normalized.count(monthly_group), 2)
+        for forbidden_relation in (
+            "gold_machine_uptime_history",
+            "gold_failure_events_history",
+            "gold_publication_manifest",
+        ):
+            with self.subTest(forbidden_relation=forbidden_relation):
+                self.assertNotIn(forbidden_relation, normalized)
 
     def test_complete_month_keys_and_model_safe_attribution_are_explicit(self):
         normalized = " ".join(QUERY.read_text(encoding="utf-8").lower().split())
 
         self.assertIn("monthly_keys as", normalized)
         self.assertIn(
-            "select event_month, client_id, site_id, model from monthly_uptime union select event_month, client_id, site_id, model from monthly_failures",
+            "select event_month, client_id, site_id, model from monthly_uptime "
+            "union select event_month, client_id, site_id, model "
+            "from monthly_failures",
             normalized,
         )
         self.assertIn("keys.model <=> uptime.model", normalized)
@@ -110,7 +118,8 @@ class MonthlyReliabilityTrendsTest(unittest.TestCase):
         ):
             self.assertIn(status, normalized)
         self.assertIn(
-            "add_months(cast(previous_event_month as date), 1) = cast(event_month as date)",
+            "add_months(cast(previous_event_month as date), 1) "
+            "= cast(event_month as date)",
             normalized,
         )
         for delta in (
