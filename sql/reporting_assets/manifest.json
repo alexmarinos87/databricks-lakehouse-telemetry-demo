@@ -25,6 +25,11 @@
     "file": "maintenance_cost_drivers.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Site reliability benchmark",
+    "description": "Monthly site/model reliability indicators compared with the client-wide model benchmark.",
+    "file": "site_reliability_benchmark.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Failure events by fault",
     "description": "Warehouse-backed failure counts, affected machines, downtime and maintenance cost by fault.",
     "file": "failure_events_by_fault.sql"
