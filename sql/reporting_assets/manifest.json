@@ -40,6 +40,11 @@
     "file": "downtime_forecast.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Forecast validation diagnostics",
+    "description": "Segment-level forecast error, directional bias, interval coverage and largest observed validation miss.",
+    "file": "forecast_validation_diagnostics.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Quality monitoring",
     "description": "Recent failed checks and quality-check history for pipeline monitoring.",
     "file": "quality_monitoring.sql"
