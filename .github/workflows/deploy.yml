@@ -112,7 +112,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
 
       - name: Capture authenticated dev plan evidence
         run: |
@@ -197,7 +197,7 @@ jobs:
             --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
 
       - name: Verify dev deployment identity
         run: |
@@ -375,7 +375,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
 
       - name: Capture authenticated prod plan evidence
         run: |
@@ -460,7 +460,7 @@ jobs:
             --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121
+        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
 
       - name: Verify prod deployment identity
         run: |
