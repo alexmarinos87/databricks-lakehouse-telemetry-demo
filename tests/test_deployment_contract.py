@@ -7,6 +7,9 @@ DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 PLAN_COMMAND_WORKFLOW = (
     REPO_ROOT / ".github" / "workflows" / "plan-evidence-command.yml"
 )
+ARTIFACT_COMPATIBILITY_WORKFLOW = (
+    REPO_ROOT / ".github" / "workflows" / "artifact-compatibility.yml"
+)
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SPARK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "spark-runtime.yml"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
@@ -33,6 +36,12 @@ SETUP_CLI_STEP = (
 UPLOAD_ARTIFACT_SHA = (
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 )
+DOWNLOAD_ARTIFACT_SHA = (
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+)
+RETIRED_DOWNLOAD_ARTIFACT_SHA = (
+    "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+)
 PYTHON_IMAGE = (
     "python:3.11-slim@sha256:"
     "9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7"
@@ -55,6 +64,9 @@ class DeploymentContractTest(unittest.TestCase):
             "spark": SPARK_WORKFLOW.read_text(encoding="utf-8"),
             "deploy": DEPLOY_WORKFLOW.read_text(encoding="utf-8"),
             "plan-command": PLAN_COMMAND_WORKFLOW.read_text(encoding="utf-8"),
+            "artifact-compatibility": ARTIFACT_COMPATIBILITY_WORKFLOW.read_text(
+                encoding="utf-8"
+            ),
         }
 
         for label, workflow in workflows.items():
@@ -66,17 +78,35 @@ class DeploymentContractTest(unittest.TestCase):
 
         deploy = workflows["deploy"]
         plan_command = workflows["plan-command"]
+        artifact_compatibility = workflows["artifact-compatibility"]
         self.assertEqual(4, deploy.count(SETUP_CLI_STEP))
         self.assertEqual(1, plan_command.count(SETUP_CLI_STEP))
         self.assertEqual(6, deploy.count(UPLOAD_ARTIFACT_SHA))
         self.assertEqual(1, plan_command.count(UPLOAD_ARTIFACT_SHA))
+        self.assertEqual(1, artifact_compatibility.count(UPLOAD_ARTIFACT_SHA))
+        self.assertEqual(2, deploy.count(DOWNLOAD_ARTIFACT_SHA))
+        self.assertEqual(1, artifact_compatibility.count(DOWNLOAD_ARTIFACT_SHA))
+        self.assertNotIn(RETIRED_DOWNLOAD_ARTIFACT_SHA, deploy)
         self.assertNotIn("actions/upload-artifact@v", deploy)
         self.assertNotIn("actions/upload-artifact@v", plan_command)
+        self.assertNotIn("actions/download-artifact@v", deploy)
         self.assertNotIn("databricks/setup-cli@main", deploy)
         self.assertNotIn("databricks/setup-cli@main", plan_command)
         self.assertNotIn("snapshot: true", deploy)
         self.assertNotIn("snapshot: true", plan_command)
         self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
+
+    def test_deploy_downloads_match_the_executed_compatibility_gate(self):
+        deploy = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+        compatibility = ARTIFACT_COMPATIBILITY_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertEqual(2, deploy.count(DOWNLOAD_ARTIFACT_SHA))
+        self.assertEqual(1, compatibility.count(DOWNLOAD_ARTIFACT_SHA))
+        self.assertEqual(2, deploy.count("digest-mismatch: error"))
+        self.assertEqual(1, compatibility.count("digest-mismatch: error"))
+        self.assertNotIn("digest-mismatch: warn", deploy)
+        self.assertNotIn("digest-mismatch: ignore", deploy)
+        self.assertNotIn("skip-decompress: true", deploy)
 
     def test_databricks_cli_version_matches_the_bundle_compatibility_window(self):
         bundle = BUNDLE.read_text(encoding="utf-8")
