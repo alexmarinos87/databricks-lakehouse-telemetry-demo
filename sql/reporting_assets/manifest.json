@@ -50,6 +50,11 @@
     "file": "machine_part_usage_recurrence.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Monthly part usage concentration",
+    "description": "Monthly recorded-part ranking and cumulative shares of quantity, observed events and associated failure impact by site and model.",
+    "file": "monthly_part_usage_concentration.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Fault impact concentration",
     "description": "Monthly fault ranking and cumulative shares of observed failures, attributed downtime and maintenance cost.",
     "file": "fault_impact_concentration.sql"
