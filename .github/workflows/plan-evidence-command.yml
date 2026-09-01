@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 15
     environment: dev-plan
     permissions:
+      checks: read
       contents: read
       issues: write
       id-token: write
@@ -83,6 +84,8 @@ jobs:
           blockers = ["readiness_evidence_missing"]
           main_protected = False
           validate_required = False
+          artifact_compatibility_required = False
+          all_required_status_contexts_active = False
           if evidence_path.is_file():
               try:
                   payload = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -101,23 +104,117 @@ jobs:
                   if isinstance(github, dict):
                       main_protected = github.get("protected") is True
                       validate_required = github.get("validate_required") is True
+                      artifact_compatibility_required = (
+                          github.get("artifact_compatibility_required") is True
+                      )
+                      all_required_status_contexts_active = (
+                          github.get("all_required_status_contexts_active") is True
+                      )
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"status={status}", file=output)
               print(f"blockers={','.join(blockers) if blockers else 'none'}", file=output)
               print(f"main_protected={str(main_protected).lower()}", file=output)
               print(f"validate_required={str(validate_required).lower()}", file=output)
+              print(
+                  "artifact_compatibility_required="
+                  f"{str(artifact_compatibility_required).lower()}",
+                  file=output,
+              )
+              print(
+                  "all_required_status_contexts_active="
+                  f"{str(all_required_status_contexts_active).lower()}",
+                  file=output,
+              )
+          PY
+
+      - name: Verify accepted main delivery checks
+        id: delivery-checks
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/verify_main_check_runs.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "$(cat accepted-main-sha.txt)" \
+            --output-dir "${PLAN_EVIDENCE_DIR}" \
+            --timeout-seconds 30
+
+      - name: Load accepted main delivery-check result
+        id: delivery-check-result
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_path = (
+              Path(os.environ["PLAN_EVIDENCE_DIR"])
+              / "main-check-runs-verification.json"
+          )
+          status = "unavailable"
+          blockers = ["accepted_main_check_evidence_missing"]
+          validate_verified = False
+          artifact_compatibility_verified = False
+          if evidence_path.is_file():
+              try:
+                  payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                  payload = {}
+              if isinstance(payload, dict):
+                  raw_status = payload.get("status")
+                  if raw_status in {"verified", "blocked", "failed"}:
+                      status = raw_status
+                  raw_blockers = payload.get("blockers")
+                  if isinstance(raw_blockers, list) and all(
+                      isinstance(item, str) and item for item in raw_blockers
+                  ):
+                      blockers = raw_blockers
+                  required_checks = payload.get("required_checks")
+                  if isinstance(required_checks, list):
+                      verified_by_name = {
+                          item.get("name"): item.get("verified") is True
+                          for item in required_checks
+                          if isinstance(item, dict)
+                      }
+                      validate_verified = verified_by_name.get("validate", False)
+                      artifact_compatibility_verified = verified_by_name.get(
+                          "Round-trip synthetic review evidence",
+                          False,
+                      )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"status={status}", file=output)
+              print(f"blockers={','.join(blockers) if blockers else 'none'}", file=output)
+              print(
+                  f"validate_verified={str(validate_verified).lower()}",
+                  file=output,
+              )
+              print(
+                  "artifact_compatibility_verified="
+                  f"{str(artifact_compatibility_verified).lower()}",
+                  file=output,
+              )
           PY
 
       - name: Install Databricks CLI
-        if: steps.readiness.outcome == 'success'
+        if: >-
+          steps.readiness.outcome == 'success' &&
+          steps.readiness-result.outputs.status == 'ready' &&
+          steps.delivery-checks.outcome == 'success' &&
+          steps.delivery-check-result.outputs.status == 'verified'
         uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
         with:
           version: "1.14.1"
 
       - name: Capture authenticated dev plan evidence
         id: capture
-        if: steps.readiness.outcome == 'success'
+        if: >-
+          steps.readiness.outcome == 'success' &&
+          steps.readiness-result.outputs.status == 'ready' &&
+          steps.delivery-checks.outcome == 'success' &&
+          steps.delivery-check-result.outputs.status == 'verified'
         run: |
           python3 scripts/capture_databricks_plan.py \
             --target dev \
@@ -146,10 +243,10 @@ jobs:
           compression-level: 6
           overwrite: false
 
-      - name: Enforce external readiness gate
-        if: ${{ always() && steps.readiness.outcome != 'success' }}
+      - name: Enforce external readiness gate and accepted-main checks
+        if: ${{ always() && (steps.readiness.outcome != 'success' || steps.readiness-result.outputs.status != 'ready' || steps.delivery-checks.outcome != 'success' || steps.delivery-check-result.outputs.status != 'verified') }}
         run: |
-          echo "External readiness is blocked; review the sanitized evidence artifact." >&2
+          echo "External readiness and accepted-main delivery checks must both pass before Databricks CLI use." >&2
           exit 1
 
       - name: Record plan result on bootstrap issue
@@ -162,6 +259,12 @@ jobs:
           READINESS_BLOCKERS: ${{ steps.readiness-result.outputs.blockers }}
           MAIN_PROTECTED: ${{ steps.readiness-result.outputs.main_protected }}
           VALIDATE_REQUIRED: ${{ steps.readiness-result.outputs.validate_required }}
+          ARTIFACT_COMPATIBILITY_REQUIRED: ${{ steps.readiness-result.outputs.artifact_compatibility_required }}
+          ALL_REQUIRED_CONTEXTS_ACTIVE: ${{ steps.readiness-result.outputs.all_required_status_contexts_active }}
+          DELIVERY_CHECK_STATUS: ${{ steps.delivery-check-result.outputs.status }}
+          DELIVERY_CHECK_BLOCKERS: ${{ steps.delivery-check-result.outputs.blockers }}
+          VALIDATE_VERIFIED: ${{ steps.delivery-check-result.outputs.validate_verified }}
+          ARTIFACT_COMPATIBILITY_VERIFIED: ${{ steps.delivery-check-result.outputs.artifact_compatibility_verified }}
         run: |
           accepted_sha="unknown"
           if [[ -f accepted-main-sha.txt ]]; then
@@ -172,15 +275,21 @@ jobs:
 
           - status: ${JOB_STATUS}
           - readiness: \`${READINESS_STATUS}\`
-          - blockers: \`${READINESS_BLOCKERS}\`
+          - readiness blockers: \`${READINESS_BLOCKERS}\`
           - main protected: \`${MAIN_PROTECTED}\`
           - required validate check: \`${VALIDATE_REQUIRED}\`
+          - required artifact-compatibility check: \`${ARTIFACT_COMPATIBILITY_REQUIRED}\`
+          - all required contexts active: \`${ALL_REQUIRED_CONTEXTS_ACTIVE}\`
+          - accepted-main checks: \`${DELIVERY_CHECK_STATUS}\`
+          - accepted-main check blockers: \`${DELIVERY_CHECK_BLOCKERS}\`
+          - accepted-main validate passed: \`${VALIDATE_VERIFIED}\`
+          - accepted-main artifact compatibility passed: \`${ARTIFACT_COMPATIBILITY_VERIFIED}\`
           - accepted main: \`${accepted_sha}\`
           - run: ${RUN_URL}
           - artifact: \`${ARTIFACT_NAME}\`
           - apply, upload and workflow execution: not requested
 
-          A blocked readiness gate prevents Databricks CLI installation and all Databricks commands. Provider output is retained only in the bounded workflow evidence artifact when capture succeeds. A failed run is evidence of incomplete external bootstrap, not permission to add a static client secret.
+          Both fail-closed gates run before Databricks CLI installation. A blocked gate prevents every Databricks command and retains only bounded evidence. A failed run is evidence of incomplete external bootstrap or delivery checks, not permission to add a static client secret.
           EOF
           gh api "repos/${GITHUB_REPOSITORY}/issues/44/comments" \
             -f body="$(cat /tmp/plan-comment.md)"
