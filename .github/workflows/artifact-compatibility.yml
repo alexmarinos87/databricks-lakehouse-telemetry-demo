@@ -1,0 +1,134 @@
+name: Artifact Compatibility
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARTIFACT_NAME: artifact-compatibility-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  round-trip:
+    name: Round-trip synthetic review evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Build deterministic synthetic evidence fixture
+        run: |
+          rm -rf artifact-input artifact-output
+          mkdir -p artifact-input/review-evidence
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path("artifact-input/review-evidence")
+          payload = {
+              "artifact_kind": "synthetic_review_evidence",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "schema_version": 1,
+              "source_commit": os.environ["GITHUB_SHA"],
+          }
+          (evidence_dir / "review.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          (evidence_dir / "summary.md").write_text(
+              "# Synthetic artifact compatibility evidence\n\n"
+              "This fixture contains no Databricks plan, credential, business data, "
+              "or production evidence.\n",
+              encoding="utf-8",
+          )
+          PY
+          (
+            cd artifact-input
+            sha256sum \
+              review-evidence/review.json \
+              review-evidence/summary.md \
+              > manifest.sha256
+          )
+
+      - name: Upload synthetic evidence fixture
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifact-input
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Download synthetic evidence with candidate v8 action
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifact-output
+          digest-mismatch: error
+
+      - name: Verify exact downloaded bytes and shape
+        run: |
+          test -d artifact-output
+          if find artifact-output -type l -print -quit | grep -q .; then
+            echo "Downloaded artifact contains a symbolic link" >&2
+            exit 1
+          fi
+          if find artifact-output -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then
+            echo "Downloaded artifact contains a non-regular entry" >&2
+            exit 1
+          fi
+
+          cat > expected-files.txt <<'EOF'
+          manifest.sha256
+          review-evidence/review.json
+          review-evidence/summary.md
+          EOF
+          (
+            cd artifact-output
+            find . -type f -printf '%P\n' | LC_ALL=C sort
+          ) > actual-files.txt
+          diff -u expected-files.txt actual-files.txt
+
+          (
+            cd artifact-output
+            sha256sum --check manifest.sha256
+          )
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("artifact-output/review-evidence/review.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = {
+              "artifact_kind": "synthetic_review_evidence",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "schema_version": 1,
+              "source_commit": os.environ["GITHUB_SHA"],
+          }
+          if payload != expected:
+              raise SystemExit("Downloaded artifact provenance does not match this run")
+          PY
