@@ -32,6 +32,13 @@ versioned Gold models + dimensional warehouse
 quality evidence · forecasts · governed reporting SQL
 ```
 
+Selected governed outputs include:
+
+| Capability | Notebook and outputs |
+| --- | --- |
+| Forecast validation | `notebooks/05_forecast_validation.py` publishes `gold_downtime_forecast_validation` and `gold_downtime_forecast` |
+| Lakeflow expectations | `notebooks/06_lakeflow_quality_expectations.py` exposes `quality_expectation_event_log` and `quality_expectation_downtime_forecast` |
+
 ## What makes this more than a notebook demo
 
 - Landing identities are derived from complete source digests rather than mutable filenames.
