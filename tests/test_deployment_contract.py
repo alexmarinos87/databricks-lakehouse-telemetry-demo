@@ -23,7 +23,13 @@ QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
 FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
 CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-SETUP_CLI_SHA = "databricks/setup-cli@6bb7075f85b326f8b9ce160933dfe9bcd63c8121"
+SETUP_CLI_SHA = "databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9"
+DATABRICKS_CLI_VERSION = "1.14.1"
+SETUP_CLI_STEP = (
+    f"uses: {SETUP_CLI_SHA}\n"
+    "        with:\n"
+    f'          version: "{DATABRICKS_CLI_VERSION}"'
+)
 UPLOAD_ARTIFACT_SHA = (
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 )
@@ -60,15 +66,34 @@ class DeploymentContractTest(unittest.TestCase):
 
         deploy = workflows["deploy"]
         plan_command = workflows["plan-command"]
-        self.assertIn(SETUP_CLI_SHA, deploy)
-        self.assertIn(SETUP_CLI_SHA, plan_command)
+        self.assertEqual(4, deploy.count(SETUP_CLI_STEP))
+        self.assertEqual(1, plan_command.count(SETUP_CLI_STEP))
         self.assertEqual(6, deploy.count(UPLOAD_ARTIFACT_SHA))
         self.assertEqual(1, plan_command.count(UPLOAD_ARTIFACT_SHA))
         self.assertNotIn("actions/upload-artifact@v", deploy)
         self.assertNotIn("actions/upload-artifact@v", plan_command)
         self.assertNotIn("databricks/setup-cli@main", deploy)
         self.assertNotIn("databricks/setup-cli@main", plan_command)
+        self.assertNotIn("snapshot: true", deploy)
+        self.assertNotIn("snapshot: true", plan_command)
         self.assertGreaterEqual(deploy.count("timeout-minutes:"), 5)
+
+    def test_databricks_cli_version_matches_the_bundle_compatibility_window(self):
+        bundle = BUNDLE.read_text(encoding="utf-8")
+        deploy = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+        plan_command = PLAN_COMMAND_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "databricks_cli_version: '>= 1.14.1, < 1.15.0'",
+            bundle,
+        )
+        self.assertEqual(4, deploy.count(f'version: "{DATABRICKS_CLI_VERSION}"'))
+        self.assertEqual(
+            1,
+            plan_command.count(f'version: "{DATABRICKS_CLI_VERSION}"'),
+        )
+        self.assertNotIn("version: latest", deploy.lower())
+        self.assertNotIn("version: latest", plan_command.lower())
 
     def test_dependency_updates_cover_actions_docker_and_python(self):
         dependabot = DEPENDABOT.read_text(encoding="utf-8")
