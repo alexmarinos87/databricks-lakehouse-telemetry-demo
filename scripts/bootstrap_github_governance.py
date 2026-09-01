@@ -17,7 +17,10 @@ from typing import Any, Mapping
 
 DEFAULT_BRANCH = "main"
 REQUIRED_ENVIRONMENTS = ("dev-plan", "prod-plan", "dev", "prod")
-REQUIRED_STATUS_CONTEXT = "validate"
+REQUIRED_STATUS_CONTEXTS = (
+    "validate",
+    "Round-trip synthetic review evidence",
+)
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 
 
@@ -105,7 +108,10 @@ def branch_protection_payload(*, required_approvals: int = 0) -> dict[str, Any]:
     if required_approvals not in (0, 1):
         raise ValueError("required approvals must be zero or one")
     return {
-        "required_status_checks": {"strict": True, "contexts": [REQUIRED_STATUS_CONTEXT]},
+        "required_status_checks": {
+            "strict": True,
+            "contexts": list(REQUIRED_STATUS_CONTEXTS),
+        },
         "enforce_admins": True,
         "required_pull_request_reviews": {
             "dismiss_stale_reviews": True,
@@ -143,8 +149,14 @@ class GitHubClient:
         self._token = token
         self._api_url = api_url.rstrip("/")
 
-    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None,
-                *, acceptable_statuses: tuple[int, ...] = (200, 201, 204)) -> Any:
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        acceptable_statuses: tuple[int, ...] = (200, 201, 204),
+    ) -> Any:
         body = None if payload is None else json.dumps(payload).encode()
         request = urllib.request.Request(
             self._api_url + path,
@@ -164,96 +176,163 @@ class GitHubClient:
         except urllib.error.HTTPError as exc:
             if exc.code in acceptable_statuses:
                 return None
-            raise GitHubApiError(f"GitHub API {method} {path} failed with status {exc.code}") from None
+            raise GitHubApiError(
+                f"GitHub API {method} {path} failed with status {exc.code}"
+            ) from None
         except (OSError, TimeoutError):
-            raise GitHubApiError(f"GitHub API {method} {path} could not be completed") from None
+            raise GitHubApiError(
+                f"GitHub API {method} {path} could not be completed"
+            ) from None
         if status not in acceptable_statuses:
-            raise GitHubApiError(f"GitHub API {method} {path} returned status {status}")
+            raise GitHubApiError(
+                f"GitHub API {method} {path} returned status {status}"
+            )
         if not response_body:
             return None
         try:
             return json.loads(response_body)
         except json.JSONDecodeError:
-            raise GitHubApiError(f"GitHub API {method} {path} returned invalid JSON") from None
+            raise GitHubApiError(
+                f"GitHub API {method} {path} returned invalid JSON"
+            ) from None
 
 
 def _existing_names(payload: Any, key: str) -> set[str]:
     if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
         return set()
-    return {str(item["name"]) for item in payload[key] if isinstance(item, dict) and item.get("name")}
+    return {
+        str(item["name"])
+        for item in payload[key]
+        if isinstance(item, dict) and item.get("name")
+    }
 
 
-def _ensure_environment_variable(client: GitHubClient, *, repository_id: int,
-                                 environment: str, existing_names: set[str],
-                                 name: str, value: str) -> None:
+def _ensure_environment_variable(
+    client: GitHubClient,
+    *,
+    repository_id: int,
+    environment: str,
+    existing_names: set[str],
+    name: str,
+    value: str,
+) -> None:
     base = f"/repositories/{repository_id}/environments/{environment}/variables"
     if name in existing_names:
         client.request("PATCH", f"{base}/{name}", {"name": name, "value": value})
     else:
-        client.request("POST", base, {"name": name, "value": value}, acceptable_statuses=(201,))
+        client.request(
+            "POST",
+            base,
+            {"name": name, "value": value},
+            acceptable_statuses=(201,),
+        )
 
 
-def apply_governance(config: BootstrapConfig, *, client: GitHubClient,
-                     required_approvals: int = 0) -> dict[str, Any]:
+def apply_governance(
+    config: BootstrapConfig,
+    *,
+    client: GitHubClient,
+    required_approvals: int = 0,
+) -> dict[str, Any]:
     repository_path = f"/repos/{config.repository}"
     repository = client.request("GET", repository_path)
     if not isinstance(repository, dict) or not isinstance(repository.get("id"), int):
-        raise GitHubApiError("GitHub repository metadata did not include an integer ID")
+        raise GitHubApiError(
+            "GitHub repository metadata did not include an integer ID"
+        )
     repository_id = int(repository["id"])
     client.request("PATCH", repository_path, repository_settings_payload())
-    client.request("PUT", f"{repository_path}/branches/{DEFAULT_BRANCH}/protection",
-                   branch_protection_payload(required_approvals=required_approvals))
+    client.request(
+        "PUT",
+        f"{repository_path}/branches/{DEFAULT_BRANCH}/protection",
+        branch_protection_payload(required_approvals=required_approvals),
+    )
     summaries = []
     for environment, values in config.environments.items():
         environment_path = f"{repository_path}/environments/{environment}"
         client.request("PUT", environment_path, environment_payload())
-        policies = client.request("GET", f"{environment_path}/deployment-branch-policies")
+        policies = client.request(
+            "GET", f"{environment_path}/deployment-branch-policies"
+        )
         if DEFAULT_BRANCH not in _existing_names(policies, "branch_policies"):
-            client.request("POST", f"{environment_path}/deployment-branch-policies",
-                           {"name": DEFAULT_BRANCH, "type": "branch"},
-                           acceptable_statuses=(200, 201))
-        variables = client.request("GET", f"/repositories/{repository_id}/environments/{environment}/variables")
+            client.request(
+                "POST",
+                f"{environment_path}/deployment-branch-policies",
+                {"name": DEFAULT_BRANCH, "type": "branch"},
+                acceptable_statuses=(200, 201),
+            )
+        variables = client.request(
+            "GET",
+            f"/repositories/{repository_id}/environments/{environment}/variables",
+        )
         existing = _existing_names(variables, "variables")
-        _ensure_environment_variable(client, repository_id=repository_id, environment=environment,
-                                     existing_names=existing, name="DATABRICKS_HOST",
-                                     value=values.databricks_host)
-        _ensure_environment_variable(client, repository_id=repository_id, environment=environment,
-                                     existing_names=existing, name="DATABRICKS_CLIENT_ID",
-                                     value=values.databricks_client_id)
-        summaries.append({
-            "environment": environment,
-            "host_fingerprint": _fingerprint(values.databricks_host),
-            "client_id_fingerprint": _fingerprint(values.databricks_client_id),
-        })
+        _ensure_environment_variable(
+            client,
+            repository_id=repository_id,
+            environment=environment,
+            existing_names=existing,
+            name="DATABRICKS_HOST",
+            value=values.databricks_host,
+        )
+        _ensure_environment_variable(
+            client,
+            repository_id=repository_id,
+            environment=environment,
+            existing_names=existing,
+            name="DATABRICKS_CLIENT_ID",
+            value=values.databricks_client_id,
+        )
+        summaries.append(
+            {
+                "environment": environment,
+                "host_fingerprint": _fingerprint(values.databricks_host),
+                "client_id_fingerprint": _fingerprint(
+                    values.databricks_client_id
+                ),
+            }
+        )
     branch = client.request("GET", f"{repository_path}/branches/{DEFAULT_BRANCH}")
     if not isinstance(branch, dict) or branch.get("protected") is not True:
         raise GitHubApiError("main protection did not become active")
     settings = client.request("GET", repository_path)
-    if not isinstance(settings, dict) or settings.get("allow_merge_commit") or settings.get("allow_rebase_merge"):
+    if (
+        not isinstance(settings, dict)
+        or settings.get("allow_merge_commit")
+        or settings.get("allow_rebase_merge")
+    ):
         raise GitHubApiError("non-squash merge methods remain enabled")
     return {
         "repository": config.repository,
         "branch": DEFAULT_BRANCH,
         "protected": True,
-        "required_status_context": REQUIRED_STATUS_CONTEXT,
+        "required_status_contexts": list(REQUIRED_STATUS_CONTEXTS),
         "required_approvals": required_approvals,
         "environments": summaries,
     }
 
 
-def dry_run_summary(config: BootstrapConfig, *, required_approvals: int) -> dict[str, Any]:
+def dry_run_summary(
+    config: BootstrapConfig,
+    *,
+    required_approvals: int,
+) -> dict[str, Any]:
     branch_protection_payload(required_approvals=required_approvals)
     return {
         "mode": "dry-run",
         "repository": config.repository,
         "branch": DEFAULT_BRANCH,
-        "required_status_context": REQUIRED_STATUS_CONTEXT,
+        "required_status_contexts": list(REQUIRED_STATUS_CONTEXTS),
         "required_approvals": required_approvals,
-        "environments": [{
-            "environment": name,
-            "host_fingerprint": _fingerprint(values.databricks_host),
-            "client_id_fingerprint": _fingerprint(values.databricks_client_id),
-        } for name, values in config.environments.items()],
+        "environments": [
+            {
+                "environment": name,
+                "host_fingerprint": _fingerprint(values.databricks_host),
+                "client_id_fingerprint": _fingerprint(
+                    values.databricks_client_id
+                ),
+            }
+            for name, values in config.environments.items()
+        ],
         "writes_planned": 2 + 5 * len(config.environments),
     }
 
@@ -262,7 +341,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--required-approvals", type=int, choices=(0, 1), default=0)
+    parser.add_argument(
+        "--required-approvals",
+        type=int,
+        choices=(0, 1),
+        default=0,
+    )
     return parser.parse_args()
 
 
@@ -270,10 +354,21 @@ def main() -> int:
     args = parse_args()
     config = load_config(args.config)
     if not args.apply:
-        print(json.dumps(dry_run_summary(config, required_approvals=args.required_approvals), sort_keys=True))
+        print(
+            json.dumps(
+                dry_run_summary(
+                    config,
+                    required_approvals=args.required_approvals,
+                ),
+                sort_keys=True,
+            )
+        )
         return 0
-    result = apply_governance(config, client=GitHubClient(os.environ.get("GITHUB_ADMIN_TOKEN", "")),
-                              required_approvals=args.required_approvals)
+    result = apply_governance(
+        config,
+        client=GitHubClient(os.environ.get("GITHUB_ADMIN_TOKEN", "")),
+        required_approvals=args.required_approvals,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0
 
