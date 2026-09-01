@@ -182,7 +182,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
         bundle = BUNDLE.read_text(encoding="utf-8")
 
         self.assertIn("engine: direct", bundle)
-        self.assertIn("databricks_cli_version: '>= 1.3.0, < 2.0.0'", bundle)
+        self.assertIn("databricks_cli_version: '>= 1.14.1, < 1.15.0'", bundle)
 
     def test_plan_capture_is_bounded_structured_and_rejects_static_secrets(self):
         script = "\n".join(
