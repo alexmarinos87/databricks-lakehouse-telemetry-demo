@@ -45,6 +45,11 @@
     "file": "machine_fault_recurrence.sql"
   },
   {
+    "display_name": "Lakehouse Demo - Machine part usage recurrence",
+    "description": "Observed repeated part-use records, quantities, distinct dates and recurrence intervals by machine, fault and part.",
+    "file": "machine_part_usage_recurrence.sql"
+  },
+  {
     "display_name": "Lakehouse Demo - Fault impact concentration",
     "description": "Monthly fault ranking and cumulative shares of observed failures, attributed downtime and maintenance cost.",
     "file": "fault_impact_concentration.sql"
