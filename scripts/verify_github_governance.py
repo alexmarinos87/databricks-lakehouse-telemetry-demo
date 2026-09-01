@@ -31,7 +31,10 @@ MAX_PAGES = 10
 PAGE_SIZE = 100
 MAX_FINDINGS = 100
 REQUIRED_ENVIRONMENTS = ("dev-plan", "prod-plan", "dev", "prod")
-REQUIRED_STATUS_CONTEXT = "validate"
+REQUIRED_STATUS_CONTEXTS = (
+    "validate",
+    "Round-trip synthetic review evidence",
+)
 FORBIDDEN_STATIC_SECRET = "DATABRICKS_CLIENT_SECRET"
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 _NUMERIC_ID_PATTERN = re.compile(r"[0-9]{1,32}\Z")
@@ -177,7 +180,6 @@ def load_config(
             "databricks_client_id",
         }:
             raise ValueError(f"GitHub environment {environment} has an invalid shape")
-
         runtime_environment = raw_runtime_environments[environment]
         if not isinstance(runtime_environment, dict) or set(runtime_environment) != {
             "deployment_client_id",
@@ -425,11 +427,23 @@ def verify_state(
     required_checks = protection.get("required_status_checks")
     checks_strict = isinstance(required_checks, dict) and required_checks.get("strict") is True
     required_contexts = _status_contexts(required_checks)
-    validate_required = REQUIRED_STATUS_CONTEXT in required_contexts
+    required_contexts_match = required_contexts == set(REQUIRED_STATUS_CONTEXTS)
+    validate_required = "validate" in required_contexts
+    artifact_compatibility_required = (
+        "Round-trip synthetic review evidence" in required_contexts
+    )
     if not checks_strict:
         _add_finding(findings, "required_checks_are_not_strict", DEFAULT_BRANCH)
     if not validate_required:
         _add_finding(findings, "validate_check_is_not_required", DEFAULT_BRANCH)
+    if not artifact_compatibility_required:
+        _add_finding(
+            findings,
+            "artifact_compatibility_check_is_not_required",
+            DEFAULT_BRANCH,
+        )
+    if not required_contexts_match:
+        _add_finding(findings, "required_status_contexts_drift", DEFAULT_BRANCH)
     if not _enabled(protection.get("enforce_admins")):
         _add_finding(findings, "administrator_enforcement_is_disabled", DEFAULT_BRANCH)
     if not _enabled(protection.get("required_linear_history")):
@@ -557,8 +571,11 @@ def verify_state(
         "repository_settings": repository_setting_results,
         "branch_protection": {
             "required_checks_strict": checks_strict,
+            "expected_status_contexts": list(REQUIRED_STATUS_CONTEXTS),
             "required_status_contexts": sorted(required_contexts),
+            "required_status_contexts_match": required_contexts_match,
             "validate_required": validate_required,
+            "artifact_compatibility_required": artifact_compatibility_required,
             "administrator_enforcement": _enabled(protection.get("enforce_admins")),
             "linear_history": _enabled(protection.get("required_linear_history")),
             "force_pushes_blocked": not _enabled(protection.get("allow_force_pushes")),
