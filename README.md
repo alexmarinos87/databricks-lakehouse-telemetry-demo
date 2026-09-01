@@ -57,6 +57,8 @@ To connect the project to a Databricks workspace and run the bundle workflow, st
 | End-to-end architecture | [`docs/architecture.md`](docs/architecture.md) |
 | Workspace and ingestion setup | [`docs/setup.md`](docs/setup.md) |
 | Bundle and deployment controls | [`docs/deployment.md`](docs/deployment.md) |
+| Forecast validation notebook | [`notebooks/05_forecast_validation.py`](notebooks/05_forecast_validation.py) |
+| Lakeflow quality expectations | [`notebooks/06_lakeflow_quality_expectations.py`](notebooks/06_lakeflow_quality_expectations.py) |
 | Reporting queries | [`sql/gold_reporting_queries.sql`](sql/gold_reporting_queries.sql) |
 | Bundle resources | [`resources/`](resources/) |
 | AI-assisted delivery controls | [`docs/ai_delivery_workflow.md`](docs/ai_delivery_workflow.md) |
