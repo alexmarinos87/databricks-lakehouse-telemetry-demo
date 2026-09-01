@@ -18,7 +18,7 @@ UPLOAD_ARTIFACT_SHA = (
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 )
 DOWNLOAD_ARTIFACT_SHA = (
-    "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
 )
 
 
@@ -95,6 +95,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
 
         self.assertEqual(6, workflow.count(UPLOAD_ARTIFACT_SHA))
         self.assertEqual(2, workflow.count(DOWNLOAD_ARTIFACT_SHA))
+        self.assertEqual(2, workflow.count("digest-mismatch: error"))
         self.assertEqual(6, workflow.count("retention-days: 14"))
         self.assertEqual(6, workflow.count("if-no-files-found: error"))
         self.assertEqual(
@@ -147,6 +148,7 @@ class ManualDeploymentContractTest(unittest.TestCase):
                 self.assertLess(verify, cli)
                 self.assertLess(cli, deploy)
                 self.assertIn(f"--expected-target {target}", section)
+                self.assertIn("digest-mismatch: error", section)
 
     def test_plan_artifact_verifier_is_local_bounded_and_fail_closed(self):
         source = PLAN_VERIFIER.read_text(encoding="utf-8")
