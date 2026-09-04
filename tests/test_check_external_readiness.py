@@ -63,7 +63,11 @@ def branch_payload(
         "protected": protected,
         "protection": {
             "required_status_checks": {
-                "contexts": contexts if contexts is not None else ["validate"],
+                "contexts": (
+                    contexts
+                    if contexts is not None
+                    else list(check_external_readiness.REQUIRED_STATUS_CONTEXTS)
+                ),
                 "checks": [],
             }
         },
@@ -88,6 +92,20 @@ class CheckExternalReadinessTest(unittest.TestCase):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     check_external_readiness.positive_seconds(value)
         self.assertEqual(2.5, check_external_readiness.positive_seconds("2.5"))
+
+    def test_required_contexts_match_accepted_main_check_verifier(self):
+        verifier_path = REPO_ROOT / "scripts" / "verify_main_check_runs.py"
+        verifier_spec = importlib.util.spec_from_file_location(
+            "verify_main_check_runs_for_preflight", verifier_path
+        )
+        assert verifier_spec is not None and verifier_spec.loader is not None
+        verifier = importlib.util.module_from_spec(verifier_spec)
+        verifier_spec.loader.exec_module(verifier)
+
+        self.assertEqual(
+            verifier.REQUIRED_STATUS_CONTEXTS,
+            check_external_readiness.REQUIRED_STATUS_CONTEXTS,
+        )
 
     def test_ready_preflight_writes_sanitized_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -120,6 +138,8 @@ class CheckExternalReadinessTest(unittest.TestCase):
             )
             self.assertTrue(evidence["github"]["protected"])
             self.assertTrue(evidence["github"]["validate_required"])
+            self.assertTrue(evidence["github"]["artifact_compatibility_required"])
+            self.assertTrue(evidence["github"]["all_required_status_contexts_active"])
             self.assertTrue(evidence["github"]["oidc_context_complete"])
             self.assertTrue(evidence["databricks"]["host_valid"])
             self.assertTrue(evidence["databricks"]["client_id_valid"])
@@ -129,6 +149,31 @@ class CheckExternalReadinessTest(unittest.TestCase):
             self.assertNotIn(
                 BASE_ENVIRONMENT["ACTIONS_ID_TOKEN_REQUEST_TOKEN"], serialized
             )
+
+    def test_each_required_context_blocks_independently(self):
+        validate = check_external_readiness.VALIDATE_STATUS_CONTEXT
+        artifact = check_external_readiness.ARTIFACT_COMPATIBILITY_STATUS_CONTEXT
+        cases = (
+            ([artifact], "validate_check_is_not_required"),
+            ([validate], "artifact_compatibility_check_is_not_required"),
+        )
+
+        for contexts, expected_blocker in cases:
+            with self.subTest(contexts=contexts):
+                evidence = check_external_readiness.build_evidence(
+                    repository="alexmarinos87/databricks-lakehouse-telemetry-demo",
+                    branch="main",
+                    accepted_sha=ACCEPTED_SHA,
+                    environment=BASE_ENVIRONMENT,
+                    branch_state={
+                        "head_sha": ACCEPTED_SHA,
+                        "protected": True,
+                        "required_status_contexts": contexts,
+                        "validate_required": validate in contexts,
+                        "artifact_compatibility_required": artifact in contexts,
+                    },
+                )
+                self.assertEqual([expected_blocker], evidence["blockers"])
 
     def test_blocked_preflight_reports_all_independent_gates(self):
         environment = dict(BASE_ENVIRONMENT)
@@ -166,6 +211,7 @@ class CheckExternalReadinessTest(unittest.TestCase):
                     "accepted_main_is_stale",
                     "main_branch_is_unprotected",
                     "validate_check_is_not_required",
+                    "artifact_compatibility_check_is_not_required",
                     "databricks_host_is_missing",
                     "databricks_client_id_is_missing",
                     "static_client_secret_is_present",
@@ -192,8 +238,11 @@ class CheckExternalReadinessTest(unittest.TestCase):
             branch_state={
                 "head_sha": ACCEPTED_SHA,
                 "protected": True,
-                "required_status_contexts": ["validate"],
+                "required_status_contexts": list(
+                    check_external_readiness.REQUIRED_STATUS_CONTEXTS
+                ),
                 "validate_required": True,
+                "artifact_compatibility_required": True,
             },
         )
         serialized = json.dumps(evidence)
@@ -240,8 +289,11 @@ class CheckExternalReadinessTest(unittest.TestCase):
             branch_state={
                 "head_sha": ACCEPTED_SHA,
                 "protected": True,
-                "required_status_contexts": ["validate"],
+                "required_status_contexts": list(
+                    check_external_readiness.REQUIRED_STATUS_CONTEXTS
+                ),
                 "validate_required": True,
+                "artifact_compatibility_required": True,
             },
         )
         serialized = json.dumps(evidence)
