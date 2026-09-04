@@ -3,10 +3,10 @@
 ## Problem
 
 The repository can now define, verify and inspect the two required delivery
-checks, but the owner-triggered Databricks plan command does not yet consume the
-exact-commit check-run evidence. Without workflow enforcement, a standalone
-verifier can be correct while the authenticated CLI path still depends only on
-external-readiness evidence.
+checks, but the owner-triggered Databricks plan command does not yet consume
+check-run evidence for the exact accepted commit. Without workflow enforcement,
+a standalone verifier can be correct while the authenticated CLI path still
+depends only on external-readiness evidence.
 
 ## Acceptance Criteria
 
