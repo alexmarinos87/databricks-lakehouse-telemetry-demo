@@ -32,6 +32,9 @@ depends only on external-readiness evidence.
 - Supporting production plan collection.
 - Replacing human review or human acceptance.
 
+This workflow gate does not deploy, apply changes, upload data, execute SQL, or
+mutate permissions.
+
 ## Architecture Boundaries
 
 - Components and files allowed to change:
