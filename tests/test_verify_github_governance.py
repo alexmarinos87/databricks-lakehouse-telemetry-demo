@@ -58,7 +58,7 @@ class FakeClient:
             payload = {
                 "required_status_checks": {
                     "strict": True,
-                    "contexts": ["validate"],
+                    "contexts": list(module.REQUIRED_STATUS_CONTEXTS),
                     "checks": [],
                 },
                 "enforce_admins": {"enabled": True},
@@ -189,6 +189,16 @@ class VerifyGitHubGovernanceTest(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertEqual("verified", evidence["status"])
         self.assertEqual([], evidence["findings"])
+        self.assertEqual(
+            list(module.REQUIRED_STATUS_CONTEXTS),
+            evidence["branch_protection"]["expected_status_contexts"],
+        )
+        self.assertTrue(
+            evidence["branch_protection"]["required_status_contexts_match"]
+        )
+        self.assertTrue(
+            evidence["branch_protection"]["artifact_compatibility_required"]
+        )
         self.assertTrue(all(item["verified"] for item in evidence["environments"]))
         for sensitive in (
             "dev-plan.cloud.databricks.com",
@@ -220,11 +230,59 @@ class VerifyGitHubGovernanceTest(unittest.TestCase):
                 "repository_setting_drift",
                 "required_checks_are_not_strict",
                 "validate_check_is_not_required",
+                "artifact_compatibility_check_is_not_required",
+                "required_status_contexts_drift",
                 "administrator_enforcement_is_disabled",
                 "force_pushes_are_allowed",
                 "conversation_resolution_is_not_required",
             }.issubset(categories)
         )
+
+    def test_required_status_contexts_must_match_exactly(self):
+        cases = {
+            "missing_artifact_gate": ["validate"],
+            "unexpected_context": [
+                *module.REQUIRED_STATUS_CONTEXTS,
+                "unreviewed-context",
+            ],
+        }
+        for label, contexts in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as directory:
+                    config = self.load_config(Path(directory))
+                    client = FakeClient(config)
+                    client.protection_overrides["required_status_checks"] = {
+                        "strict": True,
+                        "contexts": contexts,
+                        "checks": [],
+                    }
+                    evidence = module.verify_state(
+                        config,
+                        client=client,
+                        required_approvals=0,
+                    )
+
+                categories = {
+                    finding["category"] for finding in evidence["findings"]
+                }
+                self.assertEqual("blocked", evidence["status"])
+                self.assertIn("required_status_contexts_drift", categories)
+                self.assertFalse(
+                    evidence["branch_protection"][
+                        "required_status_contexts_match"
+                    ]
+                )
+                if label == "missing_artifact_gate":
+                    self.assertIn(
+                        "artifact_compatibility_check_is_not_required",
+                        categories,
+                    )
+                else:
+                    self.assertTrue(
+                        evidence["branch_protection"][
+                            "artifact_compatibility_required"
+                        ]
+                    )
 
     def test_environment_policy_variable_and_secret_drift_are_reported(self):
         with tempfile.TemporaryDirectory() as directory:
