@@ -2,8 +2,8 @@
 """Capture sanitized external-control readiness before Databricks CLI use.
 
 The preflight is intentionally read-only. It verifies that the checked-out main
-commit is current, GitHub reports active protection with the required validation
-context, and the workflow exposes the expected environment-scoped GitHub OIDC
+commit is current, GitHub reports active protection with both required delivery
+contexts, and the workflow exposes the expected environment-scoped GitHub OIDC
 configuration. It never authenticates to Databricks, installs software, deploys,
 uploads data, executes SQL, or mutates permissions.
 """
@@ -28,7 +28,14 @@ from typing import Any, Callable, Mapping
 DEFAULT_BRANCH = "main"
 DEFAULT_API_URL = "https://api.github.com"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
-REQUIRED_STATUS_CONTEXT = "validate"
+VALIDATE_STATUS_CONTEXT = "validate"
+ARTIFACT_COMPATIBILITY_STATUS_CONTEXT = (
+    "Round-trip synthetic review evidence"
+)
+REQUIRED_STATUS_CONTEXTS = (
+    VALIDATE_STATUS_CONTEXT,
+    ARTIFACT_COMPATIBILITY_STATUS_CONTEXT,
+)
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 _SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _REQUIRED_GITHUB_OIDC_CONTEXT = (
@@ -86,7 +93,9 @@ def validate_branch(value: str) -> str:
 def validate_sha(value: str) -> str:
     sha = value.strip().lower()
     if not _SHA_PATTERN.fullmatch(sha):
-        raise argparse.ArgumentTypeError("accepted SHA must contain 40 hexadecimal characters")
+        raise argparse.ArgumentTypeError(
+            "accepted SHA must contain 40 hexadecimal characters"
+        )
     return sha
 
 
@@ -205,7 +214,9 @@ def fetch_branch_state(
     try:
         payload = json.loads(response_body)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ReadinessError("github", "branch_response_is_invalid_json") from None
+        raise ReadinessError(
+            "github", "branch_response_is_invalid_json"
+        ) from None
     if not isinstance(payload, dict):
         raise ReadinessError("github", "branch_response_shape_is_invalid")
 
@@ -215,11 +226,19 @@ def fetch_branch_state(
         raise ReadinessError("github", "branch_head_sha_is_missing")
 
     contexts = _required_status_contexts(payload)
+    validate_required = VALIDATE_STATUS_CONTEXT in contexts
+    artifact_compatibility_required = (
+        ARTIFACT_COMPATIBILITY_STATUS_CONTEXT in contexts
+    )
     return {
         "head_sha": head_sha,
         "protected": payload.get("protected") is True,
         "required_status_contexts": contexts,
-        "validate_required": REQUIRED_STATUS_CONTEXT in contexts,
+        "validate_required": validate_required,
+        "artifact_compatibility_required": artifact_compatibility_required,
+        "all_required_status_contexts_active": (
+            validate_required and artifact_compatibility_required
+        ),
     }
 
 
@@ -276,6 +295,12 @@ def build_evidence(
         head_sha = str(branch_state["head_sha"])
         protected = branch_state.get("protected") is True
         validate_required = branch_state.get("validate_required") is True
+        artifact_compatibility_required = (
+            branch_state.get("artifact_compatibility_required") is True
+        )
+        all_required_status_contexts_active = (
+            validate_required and artifact_compatibility_required
+        )
         accepted_matches_head = accepted_sha == head_sha
         github.update(
             {
@@ -286,6 +311,12 @@ def build_evidence(
                     branch_state.get("required_status_contexts", [])
                 ),
                 "validate_required": validate_required,
+                "artifact_compatibility_required": (
+                    artifact_compatibility_required
+                ),
+                "all_required_status_contexts_active": (
+                    all_required_status_contexts_active
+                ),
             }
         )
         if not accepted_matches_head:
@@ -294,6 +325,10 @@ def build_evidence(
             blockers.append("main_branch_is_unprotected")
         if not validate_required:
             blockers.append("validate_check_is_not_required")
+        if not artifact_compatibility_required:
+            blockers.append(
+                "artifact_compatibility_check_is_not_required"
+            )
 
     github_actions_context = environment.get("GITHUB_ACTIONS") == "true"
     if not github_actions_context:
@@ -352,7 +387,9 @@ def build_evidence(
         blockers.append("github_oidc_context_is_incomplete")
 
     expected_ref = f"refs/heads/{branch}"
-    github_ref_is_expected = environment.get("GITHUB_REF", "").strip() == expected_ref
+    github_ref_is_expected = (
+        environment.get("GITHUB_REF", "").strip() == expected_ref
+    )
     if not github_ref_is_expected:
         blockers.append("github_ref_is_not_expected_branch")
 
@@ -367,7 +404,9 @@ def build_evidence(
             "workflow_repository_matches": workflow_repository_matches,
             "workflow_sha_valid": workflow_sha_valid,
             "workflow_sha": workflow_sha if workflow_sha_valid else None,
-            "accepted_sha_matches_workflow_sha": accepted_sha_matches_workflow_sha,
+            "accepted_sha_matches_workflow_sha": (
+                accepted_sha_matches_workflow_sha
+            ),
             "github_ref_is_expected_branch": github_ref_is_expected,
             "oidc_context_complete": oidc_context_complete,
             "missing_oidc_context": missing_oidc_context,
@@ -406,6 +445,10 @@ def render_summary(evidence: Mapping[str, Any]) -> str:
         f"- Workflow commit matches accepted checkout: `{github.get('accepted_sha_matches_workflow_sha', False)}`",
         f"- Main protected: `{github.get('protected', False)}`",
         f"- Required `validate` context active: `{github.get('validate_required', False)}`",
+        "- Required artifact-compatibility context active: "
+        f"`{github.get('artifact_compatibility_required', False)}`",
+        "- All required delivery contexts active: "
+        f"`{github.get('all_required_status_contexts_active', False)}`",
         f"- GitHub OIDC context complete: `{github.get('oidc_context_complete', False)}`",
         f"- Databricks host configured and valid: `{databricks.get('host_configured', False) and databricks.get('host_valid', False)}`",
         f"- Databricks client ID configured and valid: `{databricks.get('client_id_configured', False) and databricks.get('client_id_valid', False)}`",
