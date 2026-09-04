@@ -17,7 +17,10 @@ from typing import Any, Mapping
 
 DEFAULT_BRANCH = "main"
 REQUIRED_ENVIRONMENTS = ("dev-plan", "prod-plan", "dev", "prod")
-REQUIRED_STATUS_CONTEXT = "validate"
+REQUIRED_STATUS_CONTEXTS = (
+    "validate",
+    "Round-trip synthetic review evidence",
+)
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 
 
@@ -105,7 +108,7 @@ def branch_protection_payload(*, required_approvals: int = 0) -> dict[str, Any]:
     if required_approvals not in (0, 1):
         raise ValueError("required approvals must be zero or one")
     return {
-        "required_status_checks": {"strict": True, "contexts": [REQUIRED_STATUS_CONTEXT]},
+        "required_status_checks": {"strict": True, "contexts": list(REQUIRED_STATUS_CONTEXTS)},
         "enforce_admins": True,
         "required_pull_request_reviews": {
             "dismiss_stale_reviews": True,
@@ -235,7 +238,7 @@ def apply_governance(config: BootstrapConfig, *, client: GitHubClient,
         "repository": config.repository,
         "branch": DEFAULT_BRANCH,
         "protected": True,
-        "required_status_context": REQUIRED_STATUS_CONTEXT,
+        "required_status_contexts": list(REQUIRED_STATUS_CONTEXTS),
         "required_approvals": required_approvals,
         "environments": summaries,
     }
@@ -247,7 +250,7 @@ def dry_run_summary(config: BootstrapConfig, *, required_approvals: int) -> dict
         "mode": "dry-run",
         "repository": config.repository,
         "branch": DEFAULT_BRANCH,
-        "required_status_context": REQUIRED_STATUS_CONTEXT,
+        "required_status_contexts": list(REQUIRED_STATUS_CONTEXTS),
         "required_approvals": required_approvals,
         "environments": [{
             "environment": name,

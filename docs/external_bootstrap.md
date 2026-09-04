@@ -131,8 +131,9 @@ python3 scripts/bootstrap_runtime_identity.py \
 ```
 
 The zero-approval setting preserves a sole-maintainer workflow while still
-requiring pull requests, current `validate` status, resolved conversations,
-linear history, administrator enforcement, and blocking force pushes and branch
+requiring pull requests, current `validate` and
+`Round-trip synthetic review evidence` statuses, resolved conversations, linear
+history, administrator enforcement, and blocking force pushes and branch
 deletion. Raise it to one when an independent maintainer is available.
 
 The scripts create `dev-plan`, `prod-plan`, `dev`, and `prod`, restrict each to
@@ -153,9 +154,10 @@ python3 scripts/verify_github_governance.py \
 ```
 
 The verifier performs GET requests only. It compares effective repository merge
-settings, the branch endpoint, full `main` protection, all four environment
-branch policies, deployment and runtime variables, and the absence of
-`DATABRICKS_CLIENT_SECRET` as either a variable or secret.
+settings, the branch endpoint, the exact required status-context set in full
+`main` protection, all four environment branch policies, deployment and runtime
+variables, and the absence of `DATABRICKS_CLIENT_SECRET` as either a variable or
+secret.
 
 It writes:
 

@@ -24,15 +24,20 @@ class TestGitHubBootstrap(unittest.TestCase):
         return m.load_config(path)
     def test_protection_contract(self):
         p=m.branch_protection_payload()
+        contexts=p["required_status_checks"]["contexts"]
         self.assertTrue(p["required_status_checks"]["strict"])
-        self.assertEqual(["validate"],p["required_status_checks"]["contexts"])
+        self.assertEqual(list(m.REQUIRED_STATUS_CONTEXTS),contexts)
+        self.assertEqual(len(contexts),len(set(contexts)))
         self.assertTrue(p["enforce_admins"]); self.assertTrue(p["required_linear_history"])
         self.assertFalse(p["allow_force_pushes"]); self.assertFalse(p["allow_deletions"])
     def test_apply_operations_and_verification(self):
         with tempfile.TemporaryDirectory() as d:
             client=FakeClient(); result=m.apply_governance(self.make_config(Path(d)),client=client)
         self.assertTrue(result["protected"])
+        self.assertEqual(list(m.REQUIRED_STATUS_CONTEXTS),result["required_status_contexts"])
         paths={(method,path) for method,path,_,_ in client.calls}
+        protection=next(c for c in client.calls if c[0]=="PUT" and c[1]=="/repos/alex/repo/branches/main/protection")
+        self.assertEqual(list(m.REQUIRED_STATUS_CONTEXTS),protection[2]["required_status_checks"]["contexts"])
         self.assertIn(("PUT","/repos/alex/repo/branches/main/protection"),paths)
         for env in m.REQUIRED_ENVIRONMENTS:
             self.assertIn(("PUT",f"/repos/alex/repo/environments/{env}"),paths)
@@ -43,6 +48,7 @@ class TestGitHubBootstrap(unittest.TestCase):
             summary=m.dry_run_summary(self.make_config(Path(d)),required_approvals=0)
         text=json.dumps(summary)
         self.assertNotIn("client-dev-plan",text); self.assertNotIn("dev-plan.cloud.databricks.com",text)
+        self.assertEqual(list(m.REQUIRED_STATUS_CONTEXTS),summary["required_status_contexts"])
     def test_requires_four_environments(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/"bad.json"; path.write_text(json.dumps({"repository":"alex/repo","environments":{}}))
