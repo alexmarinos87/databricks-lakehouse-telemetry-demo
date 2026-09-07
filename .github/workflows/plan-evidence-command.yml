@@ -204,7 +204,7 @@ jobs:
           steps.readiness-result.outputs.status == 'ready' &&
           steps.delivery-checks.outcome == 'success' &&
           steps.delivery-check-result.outputs.status == 'verified'
-        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
+        uses: databricks/setup-cli@1c6cdbb6ac593995df697192e7f91d9d111cac19
         with:
           version: "1.14.1"
 

@@ -112,7 +112,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
+        uses: databricks/setup-cli@1c6cdbb6ac593995df697192e7f91d9d111cac19
         with:
           version: "1.14.1"
 
@@ -200,7 +200,7 @@ jobs:
             --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
+        uses: databricks/setup-cli@1c6cdbb6ac593995df697192e7f91d9d111cac19
         with:
           version: "1.14.1"
 
@@ -380,7 +380,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
+        uses: databricks/setup-cli@1c6cdbb6ac593995df697192e7f91d9d111cac19
         with:
           version: "1.14.1"
 
@@ -468,7 +468,7 @@ jobs:
             --expected-run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9
+        uses: databricks/setup-cli@1c6cdbb6ac593995df697192e7f91d9d111cac19
         with:
           version: "1.14.1"
 
