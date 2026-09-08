@@ -64,6 +64,7 @@ To connect the project to a Databricks workspace and run its governed workflow, 
 
 | Topic | Starting point |
 | --- | --- |
+| Recruiter-facing case study | [`PORTFOLIO_CASE_STUDY.md`](PORTFOLIO_CASE_STUDY.md) |
 | End-to-end architecture | [`docs/architecture.md`](docs/architecture.md) |
 | Workspace and ingestion setup | [`docs/setup.md`](docs/setup.md) |
 | Bundle and deployment controls | [`docs/deployment.md`](docs/deployment.md) |
