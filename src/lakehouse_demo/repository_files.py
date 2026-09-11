@@ -241,25 +241,39 @@ def verify_repository_files_unchanged(
 
 
 def _verify_output_parent(destination: Path) -> None:
-    """Reject a symbolic-link or non-directory existing output ancestor."""
+    """Reject symlinks and non-directories anywhere in the output ancestry."""
     current = destination.parent
-    missing: list[Path] = []
-    while not current.exists() and not current.is_symlink():
-        missing.append(current)
+    while True:
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            pass  # Missing directories may be created after all ancestors pass.
+        except (OSError, ValueError) as exc:
+            raise RepositoryFileError("output_parent_unavailable") from exc
+        else:
+            if stat.S_ISLNK(metadata.st_mode):
+                raise RepositoryFileError("output_parent_symlink")
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise RepositoryFileError("output_parent_not_directory")
         if current == current.parent:
             break
         current = current.parent
+
+
+def _remove_owned_output(destination: Path, identity: tuple[int, int] | None) -> None:
+    """Best-effort cleanup only while the created directory is still identifiable.
+
+    Output parents must be caller-controlled: pathname checks are not a security
+    boundary against another actor renaming ancestors during filesystem calls.
+    """
+    if identity is None:
+        return
     try:
-        metadata = current.lstat()
-    except (OSError, ValueError) as exc:
-        raise RepositoryFileError("output_parent_unavailable") from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise RepositoryFileError("output_parent_symlink")
-    if not stat.S_ISDIR(metadata.st_mode):
-        raise RepositoryFileError("output_parent_not_directory")
-    for item in reversed(missing):
-        if item.exists() or item.is_symlink():
-            raise RepositoryFileError("output_parent_changed")
+        metadata = destination.lstat()
+    except (OSError, ValueError):
+        return  # Uncertain ownership must never trigger recursive deletion.
+    if stat.S_ISDIR(metadata.st_mode) and identity == (metadata.st_dev, metadata.st_ino):
+        shutil.rmtree(destination, ignore_errors=True)
 
 
 def write_new_text_package(
@@ -288,19 +302,30 @@ def write_new_text_package(
             "output_directory_exists", _public_source(destination.as_posix())
         )
 
+    # Failed creation conveys no ownership, even if another writer won the race.
     try:
         destination.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise RepositoryFileError(
+            "output_directory_exists", _public_source(destination.as_posix())
+        ) from exc
+    except (OSError, ValueError) as exc:
+        raise RepositoryFileError("output_directory_unavailable") from exc
+
+    created_identity: tuple[int, int] | None = None
+    try:
         metadata = destination.lstat()
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
             raise RepositoryFileError("output_directory_unavailable")
+        created_identity = (metadata.st_dev, metadata.st_ino)
         for name, content in sorted(files.items()):
             target = destination / name
             with target.open("x", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
         return destination
     except RepositoryFileError:
-        shutil.rmtree(destination, ignore_errors=True)
+        _remove_owned_output(destination, created_identity)
         raise
     except (OSError, ValueError) as exc:
-        shutil.rmtree(destination, ignore_errors=True)
+        _remove_owned_output(destination, created_identity)
         raise RepositoryFileError("output_directory_unavailable") from exc
