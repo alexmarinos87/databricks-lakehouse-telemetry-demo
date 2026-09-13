@@ -20,6 +20,9 @@ spec = importlib.util.spec_from_file_location("portfolio_ci_artifact", ROOT / "s
 subject = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(subject)
 
+from lakehouse_demo import portfolio_snapshot as builder
+from lakehouse_demo.azure_ingestion import MACHINE_EVENT_COLUMNS
+
 
 class PortfolioCIArtifactTest(unittest.TestCase):
     def setUp(self):
@@ -29,11 +32,25 @@ class PortfolioCIArtifactTest(unittest.TestCase):
         self.root.mkdir()
         self.source = Path(self.temporary.name) / "snapshot"
         self.output = Path(self.temporary.name) / "artifact"
-        self.sources = ["README.md", "scripts/build_portfolio_snapshot.py", "src/lakehouse_demo/portfolio_snapshot.py"]
+        self.sources = sorted([
+            *builder.EVIDENCE_PATHS, builder.DEFAULT_SAMPLE, builder.MANIFEST_PATH,
+            "sql/reporting_assets/sample.sql",
+        ])
         for relative in (*self.sources, *subject.PRODUCER_FILES):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"Synthetic committed fixture for {relative}\n", encoding="utf-8")
+        row = ["E1", "M1", "2026-04-01T06:00:00Z", "SITE-A", "CLIENT-A", "Model",
+               "1", "telemetry", "RUNNING", "OK", "none", "70", "2", "80",
+               "60", "0", "12.50", "NONE", "0", "day"]
+        # Exercise the real source validator and replay-aware profiler, not fake evidence.
+        (self.root / builder.DEFAULT_SAMPLE).write_text(
+            ",".join(MACHINE_EVENT_COLUMNS) + "\n" + (",".join(row) + "\n") * 2,
+            encoding="utf-8",
+        )
+        (self.root / builder.MANIFEST_PATH).write_text(json.dumps([
+            {"file": "sample.sql", "display_name": "Sample", "description": "Synthetic query"},
+        ]), encoding="utf-8")
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Artifact test")
         self.git("config", "user.email", "artifact-test@example.invalid")
@@ -56,15 +73,11 @@ class PortfolioCIArtifactTest(unittest.TestCase):
         self.git("commit", "-qm", "Synthetic validation commit")
 
     def write_snapshot(self):
-        payload = {
-            "schema_version": 1, "snapshot_kind": "portfolio_source_evidence",
-            "evidence_boundary": "repository_source_only",
-            "verification": copy.deepcopy(subject.SOURCE_ONLY_VERIFICATION),
-            "sources": [{"path": p, "sha256": hashlib.sha256((self.root / p).read_bytes()).hexdigest(),
-                         "size_bytes": (self.root / p).stat().st_size} for p in sorted(self.sources)],
-        }
+        payload = builder.build_portfolio_snapshot(self.root)
         self.save_payload(payload)
-        (self.source / subject.SNAPSHOT_FILES[1]).write_text("# Synthetic test snapshot\n", encoding="utf-8")
+        (self.source / subject.SNAPSHOT_FILES[1]).write_text(
+            builder.render_portfolio_snapshot_markdown(payload), encoding="utf-8",
+        )
 
     def save_payload(self, payload):
         payload = {k: v for k, v in payload.items() if k != "snapshot_sha256"}
@@ -86,6 +99,10 @@ class PortfolioCIArtifactTest(unittest.TestCase):
         self.assertEqual(set(subject.ARTIFACT_FILES), {p.name for p in self.output.iterdir()})
         for name in subject.SNAPSHOT_FILES:
             self.assertEqual((self.source / name).read_bytes(), (self.output / name).read_bytes())
+        payload = json.loads((self.output / subject.SNAPSHOT_FILES[0]).read_text())
+        self.assertEqual(2, payload["dataset_profile"]["rows"]["physical_row_count"])
+        self.assertEqual(1, payload["dataset_profile"]["rows"]["unique_event_id_count"])
+        self.assertEqual("12.5", payload["dataset_profile"]["operations"]["maintenance_cost_gbp_total"])
         self.assertEqual(self.env["GITHUB_SHA"], result["tested_checkout"])
         self.assertEqual(self.git("rev-parse", "HEAD^{tree}"), result["tested_tree"])
         self.assertTrue(result["selected_source_bytes_match_checkout"])
@@ -148,9 +165,13 @@ class PortfolioCIArtifactTest(unittest.TestCase):
         self.assert_failure(self.prepare, "source_not_committed")
 
     def test_untracked_selected_source_fails(self):
-        self.sources.append("untracked.txt")
-        (self.root / "untracked.txt").write_text("untracked")
-        self.write_snapshot()
+        path = self.root / "untracked.txt"
+        path.write_text("untracked")
+        payload = json.loads((self.source / subject.SNAPSHOT_FILES[0]).read_text())
+        payload["sources"].append({"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                   "size_bytes": path.stat().st_size})
+        payload["sources"].sort(key=lambda item: item["path"])
+        self.save_payload(payload)
         self.assert_failure(self.prepare, "source_not_committed")
 
     def test_modified_producer_workflow_fails(self):
@@ -254,6 +275,76 @@ class PortfolioCIArtifactTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {**self.env, "GITHUB_RUN_ID": "private"}), contextlib.redirect_stderr(err):
             self.assertEqual(1, subject.main(args))
         self.assertEqual({"status": "failed", "category": "ci_context_invalid"}, json.loads(err.getvalue()))
+
+    def test_forged_aggregate_with_matching_markdown_and_digest_is_rejected(self):
+        path = self.source / subject.SNAPSHOT_FILES[0]
+        payload = json.loads(path.read_text())
+        payload["dataset_profile"]["rows"]["unique_event_id_count"] = 999999999
+        self.save_payload(payload)
+        payload = json.loads(path.read_text())
+        (self.source / subject.SNAPSHOT_FILES[1]).write_text(builder.render_portfolio_snapshot_markdown(payload))
+        self.assert_failure(self.prepare, "snapshot_derivation_mismatch")
+
+    def test_missing_or_extra_sections_are_rejected_even_after_rehash(self):
+        original = json.loads((self.source / subject.SNAPSHOT_FILES[0]).read_text())
+        for field in ("dataset_profile", "reporting", "validation_entrypoints", "extra"):
+            with self.subTest(field=field):
+                payload = copy.deepcopy(original)
+                if field == "extra":
+                    payload[field] = "DO_NOT_EXPORT"
+                else:
+                    payload.pop(field)
+                self.save_payload(payload)
+                self.assert_failure(self.prepare, "snapshot_derivation_mismatch")
+
+    def test_dropped_source_inventory_is_rejected_even_with_valid_hashes(self):
+        payload = json.loads((self.source / subject.SNAPSHOT_FILES[0]).read_text())
+        payload["sources"] = [item for item in payload["sources"] if item["path"] != "README.md"]
+        self.save_payload(payload)
+        self.assert_failure(self.prepare, "snapshot_derivation_mismatch")
+
+    def test_markdown_must_equal_the_rebuilt_rendering(self):
+        (self.source / subject.SNAPSHOT_FILES[1]).write_text("# Live Databricks execution passed\n")
+        self.assert_failure(self.prepare, "snapshot_markdown_mismatch")
+
+    def test_json_boolean_cannot_substitute_for_an_integer(self):
+        payload = json.loads((self.source / subject.SNAPSHOT_FILES[0]).read_text())
+        self.assertEqual(1, payload["reporting"]["asset_count"])
+        payload["reporting"]["asset_count"] = True
+        self.save_payload(payload)
+        self.assert_failure(self.prepare, "snapshot_derivation_mismatch")
+
+    def test_noncanonical_json_is_not_the_builder_output(self):
+        path = self.source / subject.SNAPSHOT_FILES[0]
+        path.write_text(json.dumps(json.loads(path.read_text())))
+        self.assert_failure(self.prepare, "snapshot_derivation_mismatch")
+
+    def test_source_change_after_rebuilding_still_fails_capture_recheck(self):
+        original = subject.build_portfolio_snapshot
+        def change_after_build(root):
+            result = original(root)
+            (self.root / "README.md").write_text("changed after reconstruction")
+            return result
+        with mock.patch.object(subject, "build_portfolio_snapshot", change_after_build):
+            self.assert_failure(self.prepare)
+
+    def test_rebuild_failure_is_sanitized(self):
+        with mock.patch.object(subject, "build_portfolio_snapshot",
+                               side_effect=builder.PortfolioSnapshotError("PRIVATE_DIAGNOSTIC")):
+            self.assert_failure(self.prepare, "snapshot_rebuild_failed")
+
+    def test_cli_derivation_failure_is_sanitized_without_output(self):
+        payload = json.loads((self.source / subject.SNAPSHOT_FILES[0]).read_text())
+        payload["extra"] = "PRIVATE_INPUT_MARKER"
+        self.save_payload(payload)
+        args = ["prepare", "--repository-root", str(self.root), "--snapshot-dir", str(self.source),
+                "--output-dir", str(self.output)]
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, self.env), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(1, subject.main(args))
+        self.assertEqual("", out.getvalue())
+        self.assertEqual({"status": "failed", "category": "snapshot_derivation_mismatch"}, json.loads(err.getvalue()))
+        self.assertFalse(self.output.exists())
 
     def test_workflow_publication_requires_validation_and_preserves_least_privilege(self):
         text = (ROOT / ".github/workflows/ci.yml").read_text()

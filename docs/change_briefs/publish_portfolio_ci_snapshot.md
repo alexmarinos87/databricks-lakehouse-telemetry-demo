@@ -122,3 +122,37 @@ source blob verification and provenance boundaries; explicit upload paths, lifet
 and rerun naming; download comparison against producer bytes; failure handling and
 whether the artifact's run actually completed successfully. Do not use this source
 artifact as a deployment approval or as effective workspace governance evidence.
+
+## Continuation Review: Verify Source Derivation Before Packaging
+
+Author review of the first candidate found that Git/source matching and a supplied
+snapshot digest did not establish that the payload was derived from the source.
+An exact-blob local reproduction accepted missing profiles, invented aggregates
+with recomputed digests, and Markdown claiming live execution while JSON kept
+source-only flags. This is an evidence-integrity defect, not a demonstrated
+credential leak or proof that the previously published artifact was incorrect.
+
+The correction stays inside this draft PR and changes only its packaging script,
+its tests and this brief. After the existing Git checks, rebuild the complete
+snapshot with the existing bounded builder and compare canonical JSON bytes and
+rendered Markdown bytes. Reject any disagreement before output creation. Retain
+post-rebuild source, checkout and input-package rechecks. Do not silently replace
+or normalize mismatched caller input: require a fresh genuine builder package.
+This adds one bounded offline reconstruction, not another repository test run,
+network call, Spark job or independent implementation of the business aggregates.
+
+Additional acceptance cases cover altered aggregates even with matching Markdown
+and a recomputed digest, missing/extra sections, omitted source records, Markdown
+mismatch, Boolean/integer substitutions, noncanonical JSON, source drift after
+reconstruction and sanitized CLI failures. Existing provenance and output-safety
+tests now use real builder-produced packages in disposable Git repositories
+rather than incomplete hand-written snapshot fixtures. Valid existing builder
+output and source-only flags remain byte-compatible. Successful tests and actual
+CI publication must be re-observed on the updated candidate; original-head checks
+are historical evidence only.
+
+Recovery is to regenerate valid source evidence into a fresh directory. Reverting
+only this correction restores the known validation gap and is not an acceptable
+evidence-integrity fallback. The output envelope remains unsigned and is not a
+human acceptance token, live runtime claim or defense against a malicious builder.
+Independent engineering reviews and explicit human acceptance remain pending.

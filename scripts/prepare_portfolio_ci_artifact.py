@@ -17,6 +17,11 @@ from typing import Mapping
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from lakehouse_demo.portfolio_snapshot import (  # noqa: E402
+    PortfolioSnapshotError,
+    build_portfolio_snapshot,
+    render_portfolio_snapshot_markdown,
+)
 from lakehouse_demo.repository_files import (  # noqa: E402
     RepositoryFileError,
     normalize_repository_root,
@@ -190,6 +195,18 @@ def prepare(root: Path, snapshot_dir: Path, output_dir: Path, environment: Mappi
         matched.add(path)
     if matched != set(paths):
         raise ArtifactError("source_not_committed")
+
+    # A supplied digest proves consistency, not derivation from these source bytes.
+    # Rebuild both representations before output, then retain the capture rechecks.
+    try:
+        rebuilt = build_portfolio_snapshot(root)
+    except PortfolioSnapshotError as exc:
+        raise ArtifactError("snapshot_rebuild_failed") from exc
+    if contents[SNAPSHOT_FILES[0]] != canonical(rebuilt).encode("utf-8"):
+        raise ArtifactError("snapshot_derivation_mismatch")
+    if contents[SNAPSHOT_FILES[1]] != render_portfolio_snapshot_markdown(rebuilt).encode("utf-8"):
+        raise ArtifactError("snapshot_markdown_mismatch")
+
     verify_repository_files_unchanged(root, captured)
     if checkout_identity(root, context) != tree or package_bytes(snapshot_dir, SNAPSHOT_FILES) != contents:
         raise ArtifactError("capture_changed")
