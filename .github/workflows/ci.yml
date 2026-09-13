@@ -27,6 +27,11 @@ jobs:
       - name: Run validation image
         run: docker run --rm lakehouse-demo-ci
 
+      - name: Run exact-index acceptance checks
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/run_acceptance_checks.sh
+
       - name: Generate review package
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
