@@ -6,12 +6,12 @@ import csv
 import io
 import json
 from collections import Counter
-from decimal import Decimal
+from decimal import Context, Decimal, DecimalException, Inexact, InvalidOperation, Overflow, ROUND_HALF_EVEN
 from pathlib import Path
 from typing import Iterable
 
 from lakehouse_demo.azure_ingestion import MACHINE_EVENT_COLUMNS
-from lakehouse_demo.machine_event_contract import validate_machine_event_files
+from lakehouse_demo.machine_event_contract import MAX_TOTAL_ROWS, validate_machine_event_files
 from lakehouse_demo.repository_files import (
     DEFAULT_MAX_FILE_BYTES,
     DEFAULT_MAX_TOTAL_BYTES,
@@ -30,6 +30,11 @@ PROFILE_JSON = "dataset-profile.json"
 PROFILE_MARKDOWN = "dataset-profile.md"
 DEFAULT_SAMPLE = "data/sample_machine_events.csv"
 DEFAULT_INCREMENT_GLOB = "data/increments/*.csv"
+MAX_PROFILE_COST_DIGITS = 1_000
+MAX_PROFILE_COST_EXPONENT = 1_000
+PROFILE_COST_PRECISION = (
+    MAX_PROFILE_COST_DIGITS + 2 * MAX_PROFILE_COST_EXPONENT + len(str(MAX_TOTAL_ROWS)) + 1
+)
 
 
 class DatasetProfileError(RuntimeError):
@@ -89,6 +94,27 @@ def _validated_snapshots(
     except RepositoryFileError as exc:
         raise DatasetProfileError(exc.category) from exc
     return snapshots
+
+
+def _add_profile_cost(total: Decimal, value: str) -> Decimal:
+    """Add exact, bounded source amounts without inheriting or mutating caller context."""
+    context = Context(
+        prec=PROFILE_COST_PRECISION, rounding=ROUND_HALF_EVEN,
+        Emin=-MAX_PROFILE_COST_EXPONENT,
+        Emax=MAX_PROFILE_COST_DIGITS + MAX_PROFILE_COST_EXPONENT + len(str(MAX_TOTAL_ROWS)),
+        capitals=1, clamp=0, flags=[], traps=[InvalidOperation, Overflow, Inexact],
+    )
+    try:
+        amount = Decimal(value, context=context)
+        if not amount.is_finite() or amount < 0:
+            raise DatasetProfileError("machine_event_profile_cost_invalid")
+        parts = amount.as_tuple()
+        if (len(parts.digits) > MAX_PROFILE_COST_DIGITS
+                or abs(parts.exponent) > MAX_PROFILE_COST_EXPONENT):
+            raise DatasetProfileError("machine_event_profile_cost_limit_exceeded")
+        return context.add(total, amount)
+    except DecimalException as exc:
+        raise DatasetProfileError("machine_event_profile_cost_arithmetic_failed") from exc
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -178,7 +204,7 @@ def profile_machine_event_files(
             duration_total += int(row["duration_minutes"])
             downtime_total += int(row["downtime_minutes"])
             part_quantity_total += int(row["part_quantity"])
-            maintenance_cost_total += Decimal(row["maintenance_cost_gbp"])
+            maintenance_cost_total = _add_profile_cost(maintenance_cost_total, row["maintenance_cost_gbp"])
 
             if row["status"] == "FAULT":
                 fault_rows += 1
