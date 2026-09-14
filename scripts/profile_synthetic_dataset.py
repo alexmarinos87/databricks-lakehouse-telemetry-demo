@@ -13,13 +13,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from lakehouse_demo.dataset_profile import (  # noqa: E402
+    DatasetProfileError,
     default_machine_event_sources,
     profile_machine_event_files,
     write_dataset_profile_package,
 )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", default=str(REPO_ROOT))
     parser.add_argument(
@@ -28,14 +29,23 @@ def parse_args() -> argparse.Namespace:
         help="Repository-relative machine-event CSV; repeat for multiple files",
     )
     parser.add_argument("--output-dir", required=True)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
-    sources = args.source or default_machine_event_sources(args.repository_root)
-    profile = profile_machine_event_files(args.repository_root, sources)
-    write_dataset_profile_package(profile, args.output_dir)
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        sources = args.source or default_machine_event_sources(args.repository_root)
+        profile = profile_machine_event_files(args.repository_root, sources)
+        write_dataset_profile_package(profile, args.output_dir)
+    except DatasetProfileError as exc:
+        print(json.dumps({"status": "failed", "category": exc.category,
+                          "details": list(exc.details)}, sort_keys=True), file=sys.stderr)
+        return 1
+    except (OSError, ValueError):
+        print(json.dumps({"status": "failed", "category": "dataset_profile_io_failed",
+                          "details": []}, sort_keys=True), file=sys.stderr)
+        return 1
     rows = profile["rows"]
     coverage = profile["coverage"]
     assert isinstance(rows, dict)
