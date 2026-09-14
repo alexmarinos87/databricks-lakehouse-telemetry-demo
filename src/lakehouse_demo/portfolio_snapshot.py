@@ -12,6 +12,7 @@ from lakehouse_demo.dataset_profile import (
     DEFAULT_INCREMENT_GLOB,
     DEFAULT_SAMPLE,
     DatasetProfileError,
+    default_machine_event_sources,
     profile_machine_event_files,
     render_dataset_profile_markdown,
 )
@@ -47,6 +48,7 @@ EVIDENCE_PATHS = (
     "scripts/build_portfolio_snapshot.py",
     "src/lakehouse_demo/portfolio_snapshot.py",
     "src/lakehouse_demo/dataset_profile.py",
+    "src/lakehouse_demo/fixture_discovery.py",
     "src/lakehouse_demo/repository_files.py",
     "src/lakehouse_demo/azure_ingestion.py",
     "src/lakehouse_demo/machine_event_contract.py",
@@ -106,13 +108,12 @@ def _reporting_paths(content: bytes) -> tuple[str, ...]:
 
 
 def _fixture_paths(root: Path) -> tuple[str, ...]:
-    paths = [DEFAULT_SAMPLE]
-    for path in root.glob(DEFAULT_INCREMENT_GLOB):
-        if len(paths) >= MAX_FIXTURE_FILES:
-            raise PortfolioSnapshotError("fixture_file_count_exceeded")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.csv", path.name):
+    paths = default_machine_event_sources(root)
+    if len(paths) > MAX_FIXTURE_FILES:
+        raise PortfolioSnapshotError("fixture_file_count_exceeded")
+    for path in paths[1:]:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.csv", Path(path).name):
             raise PortfolioSnapshotError("fixture_filename_invalid")
-        paths.append(path.relative_to(root).as_posix())
     return tuple(sorted(paths))
 
 

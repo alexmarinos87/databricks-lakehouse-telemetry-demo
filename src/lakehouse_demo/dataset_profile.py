@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterable
 
 from lakehouse_demo.azure_ingestion import MACHINE_EVENT_COLUMNS
+from lakehouse_demo.fixture_discovery import FixtureDiscoveryError, discover_increment_paths
 from lakehouse_demo.machine_event_contract import MAX_TOTAL_ROWS, validate_machine_event_files
 from lakehouse_demo.repository_files import (
     DEFAULT_MAX_FILE_BYTES,
@@ -48,19 +49,12 @@ class DatasetProfileError(RuntimeError):
 
 
 def default_machine_event_sources(repository_root: str | Path) -> tuple[str, ...]:
-    """Return the committed sample followed by deterministic increment paths."""
+    """Return the sample and bounded increments; unreadable discovery is an error."""
     try:
         root = normalize_repository_root(repository_root)
-    except RepositoryFileError as exc:
+        return (DEFAULT_SAMPLE, *discover_increment_paths(root))
+    except (RepositoryFileError, FixtureDiscoveryError) as exc:
         raise DatasetProfileError(exc.category) from exc
-    sources = [DEFAULT_SAMPLE]
-    sources.extend(
-        path.relative_to(root).as_posix()
-        for path in sorted(
-            root.glob(DEFAULT_INCREMENT_GLOB), key=lambda item: item.as_posix()
-        )
-    )
-    return tuple(sources)
 
 
 def _validated_snapshots(
