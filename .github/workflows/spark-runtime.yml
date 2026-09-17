@@ -4,6 +4,14 @@ on:
   pull_request:
     paths:
       - "src/lakehouse_demo/spark_*.py"
+      - "src/lakehouse_demo/azure_ingestion.py"
+      - "src/lakehouse_demo/dataset_profile.py"
+      - "src/lakehouse_demo/downtime_pipeline.py"
+      - "src/lakehouse_demo/fixture_discovery.py"
+      - "src/lakehouse_demo/machine_event_contract.py"
+      - "src/lakehouse_demo/repository_files.py"
+      - "data/sample_machine_events.csv"
+      - "data/increments/*.csv"
       - "notebooks/*.py"
       - "tests_runtime/**"
       - "Dockerfile.spark-ci"
@@ -16,6 +24,14 @@ on:
       - main
     paths:
       - "src/lakehouse_demo/spark_*.py"
+      - "src/lakehouse_demo/azure_ingestion.py"
+      - "src/lakehouse_demo/dataset_profile.py"
+      - "src/lakehouse_demo/downtime_pipeline.py"
+      - "src/lakehouse_demo/fixture_discovery.py"
+      - "src/lakehouse_demo/machine_event_contract.py"
+      - "src/lakehouse_demo/repository_files.py"
+      - "data/sample_machine_events.csv"
+      - "data/increments/*.csv"
       - "notebooks/*.py"
       - "tests_runtime/**"
       - "Dockerfile.spark-ci"

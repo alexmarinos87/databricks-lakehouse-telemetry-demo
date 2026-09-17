@@ -27,10 +27,15 @@ jobs:
       - name: Run validation image
         run: docker run --rm lakehouse-demo-ci
 
+      - name: Run exact-index acceptance checks
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/run_acceptance_checks.sh
+
       - name: Generate review package
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
-          BASE_REF: origin/${{ github.base_ref }}
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
           CANDIDATE_HEAD: ${{ github.event.pull_request.head.sha }}
           TESTED_CHECKOUT: ${{ github.sha }}
           VALIDATION_STATUS: ${{ job.status }}
@@ -45,3 +50,70 @@ jobs:
       - name: Publish review package summary
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: cat review-package.md >> "${GITHUB_STEP_SUMMARY}"
+
+  portfolio-evidence:
+    name: Publish portfolio source evidence
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: portfolio-source-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ARTIFACT_NAME: portfolio-source-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Check out exact tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build and bind source evidence
+        env:
+          CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          CI_VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: |
+          python3 scripts/build_portfolio_snapshot.py \
+            --output-dir "${RUNNER_TEMP}/portfolio-snapshot"
+          python3 scripts/prepare_portfolio_ci_artifact.py prepare \
+            --snapshot-dir "${RUNNER_TEMP}/portfolio-snapshot" \
+            --output-dir "${RUNNER_TEMP}/portfolio-artifact"
+
+      - name: Upload portfolio source evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ runner.temp }}/portfolio-artifact/portfolio-snapshot.json
+            ${{ runner.temp }}/portfolio-artifact/portfolio-snapshot.md
+            ${{ runner.temp }}/portfolio-artifact/ci-provenance.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Download portfolio source evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/portfolio-downloaded
+          digest-mismatch: error
+
+      - name: Verify downloaded portfolio bytes
+        run: |
+          python3 scripts/prepare_portfolio_ci_artifact.py verify-download \
+            --expected-dir "${RUNNER_TEMP}/portfolio-artifact" \
+            --downloaded-dir "${RUNNER_TEMP}/portfolio-downloaded"
+
+      - name: Summarize verified source evidence
+        run: |
+          printf '## Portfolio source evidence\n\nSource-only artifact: `%s`\n\n' \
+            "${ARTIFACT_NAME}" >> "${GITHUB_STEP_SUMMARY}"
+          printf 'Exact downloaded files verified. Review ci-provenance.json for candidate and tested-checkout identities.\n\n' \
+            >> "${GITHUB_STEP_SUMMARY}"
+          printf 'This is not human acceptance, live Databricks evidence or deployment approval.\n' \
+            >> "${GITHUB_STEP_SUMMARY}"
