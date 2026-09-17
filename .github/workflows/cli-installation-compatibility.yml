@@ -1,0 +1,57 @@
+name: CLI Installation Compatibility
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/plan-evidence-command.yml'
+      - '.github/workflows/cli-installation-compatibility.yml'
+      - 'scripts/check_cli_installation.py'
+      - 'scripts/run_acceptance_checks.sh'
+      - 'tests/test_cli_installation.py'
+      - 'tests/test_deployment_contract.py'
+      - 'databricks.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/plan-evidence-command.yml'
+      - '.github/workflows/cli-installation-compatibility.yml'
+      - 'scripts/check_cli_installation.py'
+      - 'scripts/run_acceptance_checks.sh'
+      - 'tests/test_cli_installation.py'
+      - 'tests/test_deployment_contract.py'
+      - 'databricks.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-installation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-installation:
+    name: Verify pinned CLI installation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run exact-index acceptance checks
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/run_acceptance_checks.sh
+
+      - name: Install explicitly supported CLI release
+        uses: databricks/setup-cli@cfd9223558b9082c2aabb0c8fa47f1c3db2b7cbd
+        with:
+          version: "1.14.1"
+
+      - name: Verify release without credentials
+        run: python3 scripts/check_cli_installation.py

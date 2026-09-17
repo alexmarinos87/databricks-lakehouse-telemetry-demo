@@ -26,7 +26,7 @@ QUERY_MANIFEST = REPO_ROOT / "sql" / "reporting_assets" / "manifest.json"
 FAILURE_QUERY = REPO_ROOT / "sql" / "reporting_assets" / "failure_events_by_fault.sql"
 
 CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-SETUP_CLI_SHA = "databricks/setup-cli@602f285bac0c85e5985bf4c16d5a2befed0578d9"
+SETUP_CLI_SHA = "databricks/setup-cli@cfd9223558b9082c2aabb0c8fa47f1c3db2b7cbd"
 DATABRICKS_CLI_VERSION = "1.14.1"
 SETUP_CLI_STEP = (
     f"uses: {SETUP_CLI_SHA}\n"
