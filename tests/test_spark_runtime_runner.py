@@ -140,6 +140,69 @@ class SparkRuntimeRunnerTest(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn("failures=1", result.stderr)
 
+    def custom_suite_source(self, body):
+        return (
+            "import unittest\n"
+            "class Probe(unittest.TestCase):\n"
+            " def test_first(self): pass\n"
+            " def test_second(self): pass\n"
+            "class CustomSuite(unittest.TestSuite):\n"
+            " def run(self, result, debug=False):\n"
+            + "".join(f"  {line}\n" for line in body.splitlines())
+            + "def load_tests(loader, tests, pattern):\n"
+            " return CustomSuite([Probe('test_first'), Probe('test_second')])\n"
+        )
+
+    def test_discovery_exit_is_not_success(self):
+        for code in ("0", "None", "'synthetic exit detail'"):
+            with self.subTest(code=code):
+                source = f"def load_tests(loader, tests, pattern):\n raise SystemExit({code})\n"
+                result = self.run_suite(source)
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("discovery failed", result.stderr)
+                self.assertNotIn("synthetic exit detail", result.stderr)
+
+    def test_suite_exit_is_not_success(self):
+        for code in ("0", "None", "'synthetic exit detail'"):
+            with self.subTest(code=code):
+                source = self.custom_suite_source(f"raise SystemExit({code})")
+                result = self.run_suite(source)
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("execution exited", result.stderr)
+                self.assertNotIn("synthetic exit detail", result.stderr)
+
+    def test_stopped_suite_is_not_success_even_at_full_count(self):
+        for execution in ("next(iter(self))(result)", "super().run(result, debug)"):
+            with self.subTest(execution=execution):
+                source = self.custom_suite_source(execution + "\nresult.stop()\nreturn result")
+                result = self.run_suite(source)
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("evidence is incomplete", result.stderr)
+
+    def test_unexecuted_discovered_suite_is_not_success(self):
+        result = self.run_suite(self.custom_suite_source("return result"))
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("ran 0 of 2 discovered tests", result.stderr)
+
+    def test_partial_suite_without_stop_is_not_success(self):
+        result = self.run_suite(self.custom_suite_source(
+            "next(iter(self))(result)\nreturn result",
+        ))
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("ran 1 of 2 discovered tests", result.stderr)
+
+    def test_extra_execution_is_not_complete_discovery_evidence(self):
+        result = self.run_suite(self.custom_suite_source(
+            "next(iter(self))(result)\nreturn super().run(result, debug)",
+        ))
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("ran 3 of 2 discovered tests", result.stderr)
+
+    def test_complete_custom_suite_is_success(self):
+        result = self.run_suite(self.custom_suite_source("return super().run(result, debug)"))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Ran 2 tests", result.stderr)
+
     def test_workflow_runs_acceptance_before_spark_without_new_authority(self):
         text = (ROOT / ".github/workflows/spark-runtime.yml").read_text(encoding="utf-8")
         self.assertLess(text.index("Run exact-index acceptance checks"), text.index("Build Spark runtime image"))

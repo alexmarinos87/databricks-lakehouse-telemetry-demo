@@ -22,19 +22,29 @@ def main() -> int:
         suite = unittest.TestLoader().discover(
             str(RUNTIME_DIRECTORY.parent / options.s), pattern=options.p,
         )
-    except (ImportError, OSError):
+        discovered_count = suite.countTestCases()
+    except (ImportError, OSError, SystemExit):
         print("Spark runtime discovery failed.", file=sys.stderr)
         return 1
-    if suite.countTestCases() == 0:
+    if discovered_count == 0:
         print("Spark runtime suite is empty; no runtime evidence was produced.", file=sys.stderr)
         return 1
     # Match unittest.main: show diagnostics unless Python -W options override it.
     warning_policy = None if sys.warnoptions else "default"
-    result = unittest.TextTestRunner(
-        verbosity=2 if options.v else 1, warnings=warning_policy,
-    ).run(suite)
+    try:
+        result = unittest.TextTestRunner(
+            verbosity=2 if options.v else 1, warnings=warning_policy,
+        ).run(suite)
+    except SystemExit:
+        print("Spark runtime execution exited before completing.", file=sys.stderr)
+        return 1
     if result.skipped or result.expectedFailures:
         print("Spark runtime evidence is incomplete: skipped or expected-failure tests.",
+              file=sys.stderr)
+        return 1
+    if result.shouldStop or result.testsRun != discovered_count:
+        print(f"Spark runtime evidence is incomplete: ran {result.testsRun} of "
+              f"{discovered_count} discovered tests or received a stop request.",
               file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
