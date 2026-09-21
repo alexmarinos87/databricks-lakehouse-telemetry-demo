@@ -111,7 +111,8 @@ def build_silver_frames(bronze: DataFrame) -> Mapping[str, DataFrame]:
             "event_payload_sha256",
             F.sha2(F.col(_EVENT_PAYLOAD_COLUMN), 256),
         )
-        .withColumn("event_ts_utc", F.to_timestamp("event_ts"))
+        # Invalid timestamps must reach quarantine even with ANSI mode enabled.
+        .withColumn("event_ts_utc", F.try_to_timestamp("event_ts"))
         .withColumn("event_date", F.to_date("event_ts_utc"))
         .withColumn("hour_meter", F.col("hour_meter").cast("double"))
         .withColumn("temperature_c", F.col("temperature_c").cast("double"))
