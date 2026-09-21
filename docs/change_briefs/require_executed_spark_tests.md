@@ -12,6 +12,8 @@ rather than depending on interpreter-specific CLI behavior.
 ## Acceptance Criteria
 
 - Runtime discovery uses the same directory, pattern and verbose unittest runner.
+- Preserve the original shell discovery flags, parse them, and reject unsupported
+  directory/pattern overrides instead of silently ignoring them.
 - Empty/missing discovery, test/import errors, assertions and unexpected successes
   return nonzero. Skips and expected failures cannot count as complete evidence.
 - Normal passing suites still return 0. Do not suppress warnings or diagnostics.
@@ -33,7 +35,7 @@ review still owns suite completeness.
 
 Add `scripts/run_spark_runtime_checks.py`; route the existing shell to it. Modify
 only the existing Spark workflow's watched runner/test paths, full-history checkout
-and acceptance invocation. Add fifteen portable tests and this brief. Together with
+and acceptance invocation. Add seventeen portable tests and this brief. Together with
 the separately committed timestamp fix this remains a small main-targeted runtime
 candidate, not an extension of #147's large source-evidence integration.
 
@@ -67,7 +69,7 @@ changes. Existing upstream socket warnings remain unresolved and visible.
 
 ## Validation Plan
 
-Run fifteen portable tests through real launcher subprocesses and verify Python
+Run seventeen portable tests through real launcher subprocesses and verify Python
 3.11 syntax compatibility, Bash syntax, YAML and whitespace locally. Observe the
 full actual acceptance script and real Spark suite in GitHub on the exact final
 candidate. The local environment lacks Docker/PySpark and cannot resolve GitHub
@@ -75,3 +77,14 @@ for cloning: focused subprocess tests are not full local repository acceptance.
 Inspect discovery count, result handling, shell exit propagation, exact BASE_REF
 and acceptance-before-image ordering. Independent correctness/adversarial review
 and exact human acceptance remain pending. No merge/deployment is authorized.
+
+## Prospective Integration Correction
+
+A local source-subset check of the prospective #147/#148 combination found that
+#147's existing wiring test requires the original shell discovery flags. The
+corrective commit retains those flags and genuinely parses/uses them in the new
+runner. Only the original directory/pattern values are allowed; this does not add
+generic arbitrary test selection. Two additional subprocess tests check canonical
+arguments and rejected overrides. The combined three-test wiring subset must pass;
+it is not a full merged-repository acceptance or combined Spark run. Neither
+existing PR branch is edited or merged by this compatibility correction.

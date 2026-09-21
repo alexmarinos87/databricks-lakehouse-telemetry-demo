@@ -14,7 +14,7 @@ PASS = "import unittest\nclass Probe(unittest.TestCase):\n def test_probe(self):
 
 
 class SparkRuntimeRunnerTest(unittest.TestCase):
-    def run_suite(self, source=None, filename="test_spark_probe_runtime.py", directory=True):
+    def run_suite(self, source=None, filename="test_spark_probe_runtime.py", directory=True, runner_arguments=None):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "scripts").mkdir()
@@ -24,8 +24,11 @@ class SparkRuntimeRunnerTest(unittest.TestCase):
                 (root / "tests_runtime").mkdir()
             if source is not None:
                 (root / "tests_runtime" / filename).write_text(source, encoding="utf-8")
+            command = (["bash", "scripts/run_spark_runtime_checks.sh"]
+                       if runner_arguments is None else
+                       ["python3", "scripts/run_spark_runtime_checks.py", *runner_arguments])
             return subprocess.run(
-                ["bash", "scripts/run_spark_runtime_checks.sh"], cwd=root,
+                command, cwd=root,
                 env={"PATH": os.environ.get("PATH", os.defpath), "HOME": temporary},
                 capture_output=True, text=True, timeout=10, check=False,
             )
@@ -34,6 +37,20 @@ class SparkRuntimeRunnerTest(unittest.TestCase):
         result = self.run_suite(PASS)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("Ran 1 test", result.stderr)
+
+    def test_original_discovery_arguments_are_parsed_and_executed(self):
+        result = self.run_suite(PASS, runner_arguments=[
+            "-s", "tests_runtime", "-p", "test_spark_*_runtime.py", "-v",
+        ])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("test_probe", result.stderr)
+
+    def test_discovery_overrides_are_rejected_not_ignored(self):
+        for arguments in (["-s", "other"], ["-p", "test_other.py"], ["--unknown"]):
+            with self.subTest(arguments=arguments):
+                result = self.run_suite(PASS, runner_arguments=arguments)
+                self.assertEqual(2, result.returncode)
+                self.assertNotIn("Ran 1 test", result.stderr)
 
     def test_empty_directory_is_not_success(self):
         result = self.run_suite()
