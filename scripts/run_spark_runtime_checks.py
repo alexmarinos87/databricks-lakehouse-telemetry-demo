@@ -28,7 +28,11 @@ def main() -> int:
     if suite.countTestCases() == 0:
         print("Spark runtime suite is empty; no runtime evidence was produced.", file=sys.stderr)
         return 1
-    result = unittest.TextTestRunner(verbosity=2 if options.v else 1).run(suite)
+    # Match unittest.main: show diagnostics unless Python -W options override it.
+    warning_policy = None if sys.warnoptions else "default"
+    result = unittest.TextTestRunner(
+        verbosity=2 if options.v else 1, warnings=warning_policy,
+    ).run(suite)
     if result.skipped or result.expectedFailures:
         print("Spark runtime evidence is incomplete: skipped or expected-failure tests.",
               file=sys.stderr)

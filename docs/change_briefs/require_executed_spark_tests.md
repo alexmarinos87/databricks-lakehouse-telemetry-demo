@@ -35,7 +35,7 @@ review still owns suite completeness.
 
 Add `scripts/run_spark_runtime_checks.py`; route the existing shell to it. Modify
 only the existing Spark workflow's watched runner/test paths, full-history checkout
-and acceptance invocation. Add seventeen portable tests and this brief. Together with
+and acceptance invocation. Add nineteen portable tests and this brief. Together with
 the separately committed timestamp fix this remains a small main-targeted runtime
 candidate, not an extension of #147's large source-evidence integration.
 
@@ -69,7 +69,7 @@ changes. Existing upstream socket warnings remain unresolved and visible.
 
 ## Validation Plan
 
-Run seventeen portable tests through real launcher subprocesses and verify Python
+Run nineteen portable tests through real launcher subprocesses and verify Python
 3.11 syntax compatibility, Bash syntax, YAML and whitespace locally. Observe the
 full actual acceptance script and real Spark suite in GitHub on the exact final
 candidate. The local environment lacks Docker/PySpark and cannot resolve GitHub
@@ -88,3 +88,15 @@ generic arbitrary test selection. Two additional subprocess tests check canonica
 arguments and rejected overrides. The combined three-test wiring subset must pass;
 it is not a full merged-repository acceptance or combined Spark run. Neither
 existing PR branch is edited or merged by this compatibility correction.
+
+## Warning Visibility Correction
+
+Final-log review of candidate 351764e found that direct TextTestRunner invocation
+inherits Python's usual warning filters rather than unittest.main's default policy.
+A local actual subprocess comparison displayed a synthetic ResourceWarning under
+the original CLI but not the candidate launcher. The correction explicitly uses
+`default` when `sys.warnoptions` is empty, otherwise preserves Python's configured
+warning behavior. Two regression methods cover default resource/deprecation/import
+warnings and explicit error/ignore options. This restores diagnostic visibility,
+not a resource-leak fix. No timestamp, workflow, package or runtime policy changes.
+Final-head full portable acceptance and Spark must rerun after this correction.

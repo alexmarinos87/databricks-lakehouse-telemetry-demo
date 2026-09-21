@@ -14,7 +14,7 @@ PASS = "import unittest\nclass Probe(unittest.TestCase):\n def test_probe(self):
 
 
 class SparkRuntimeRunnerTest(unittest.TestCase):
-    def run_suite(self, source=None, filename="test_spark_probe_runtime.py", directory=True, runner_arguments=None):
+    def run_suite(self, source=None, filename="test_spark_probe_runtime.py", directory=True, runner_arguments=None, python_options=()):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "scripts").mkdir()
@@ -26,7 +26,7 @@ class SparkRuntimeRunnerTest(unittest.TestCase):
                 (root / "tests_runtime" / filename).write_text(source, encoding="utf-8")
             command = (["bash", "scripts/run_spark_runtime_checks.sh"]
                        if runner_arguments is None else
-                       ["python3", "scripts/run_spark_runtime_checks.py", *runner_arguments])
+                       ["python3", *python_options, "scripts/run_spark_runtime_checks.py", *runner_arguments])
             return subprocess.run(
                 command, cwd=root,
                 env={"PATH": os.environ.get("PATH", os.defpath), "HOME": temporary},
@@ -51,6 +51,29 @@ class SparkRuntimeRunnerTest(unittest.TestCase):
                 result = self.run_suite(PASS, runner_arguments=arguments)
                 self.assertEqual(2, result.returncode)
                 self.assertNotIn("Ran 1 test", result.stderr)
+
+    def test_default_warning_categories_remain_visible(self):
+        for category in ("ResourceWarning", "DeprecationWarning", "ImportWarning"):
+            with self.subTest(category=category):
+                source = PASS.replace("import unittest", "import unittest, warnings").replace(
+                    "pass", f"warnings.warn('synthetic diagnostic', {category})",
+                )
+                result = self.run_suite(source)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn(f"{category}: synthetic diagnostic", result.stderr)
+
+    def test_explicit_python_warning_options_are_respected(self):
+        source = PASS.replace("import unittest", "import unittest, warnings").replace(
+            "pass", "warnings.warn('synthetic diagnostic', ResourceWarning)",
+        )
+        for option, expected in (("error::ResourceWarning", 1), ("ignore::ResourceWarning", 0)):
+            with self.subTest(option=option):
+                result = self.run_suite(source, runner_arguments=["-v"], python_options=["-W", option])
+                self.assertEqual(expected, result.returncode, result.stderr)
+                if expected:
+                    self.assertIn("ResourceWarning: synthetic diagnostic", result.stderr)
+                else:
+                    self.assertNotIn("ResourceWarning: synthetic diagnostic", result.stderr)
 
     def test_empty_directory_is_not_success(self):
         result = self.run_suite()
