@@ -21,11 +21,11 @@ The Databricks notebooks own platform orchestration and persistence, but no long
 
 - `01_bronze_ingest.py` obtains the ordered source schema from `raw_machine_event_schema`;
 - `02_silver_transform.py` calls `build_silver_frames` and reconciles Bronze, Silver, quarantine, identical replay, and conflicting-payload counts before writing;
-- `03_gold_models.py` writes the five DataFrames returned by `build_gold_frames`;
+- `03_gold_models.py` calls `build_governed_gold_frames` before its versioned Gold publication;
 - `04_quality_checks.py` calls `evaluate_quality_tables`, persists append-only detailed and run-level evidence, and only then raises on error-level findings;
-- `07_warehouse_model.py` calls `build_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, natural-identity, or measure-level findings remain.
+- `07_warehouse_model.py` calls `build_governed_warehouse_frames`, executes `audit_warehouse_publication`, and refuses to publish any warehouse table when aggregate, referential, natural-identity, or measure-level findings remain.
 
-Repository contracts enforce these call paths. Silver writes quarantine evidence before evaluating the conflict gate, and writes the trusted Silver table only when no conflicting payloads share an event ID. Warehouse publication auditing likewise occurs before the first warehouse Delta write. Quality checks append their detailed result rows and run summary before the deliberate failure gate. The DataFrame transformations and quality checks executed by local Spark CI are therefore the same functions the Databricks workflow invokes before persistence.
+Repository contracts enforce these call paths. The governed Gold and warehouse wrappers in `src/lakehouse_demo/downtime_pipeline.py` materialize and validate the attributed-downtime fields. The Silver, Gold and warehouse notebooks own history persistence and manifest-last publication: current views select committed generations rather than treating separate Delta writes as one transaction. Warehouse publication auditing occurs before its first history write. Local DataFrame tests exercise the shared pre-persistence logic, not those platform write operations. Quality checks append their detailed result rows and run summary before the deliberate failure gate.
 
 ## Medallion evidence
 
@@ -46,6 +46,28 @@ Replay and conflict classification compares the exact ordered source payload, ex
 
 The replay scenario uses a second immutable source-file name with a later ingestion timestamp. It proves transformation-level replay handling. It does **not** prove that Auto Loader reprocesses a corrected file delivered under the same object name and checkpoint.
 
+## Committed-fixture reconciliation
+
+`tests_runtime/test_spark_fixture_reconciliation_runtime.py` loads the actual sample
+and discovered increments, then compares the offline source profile with executed
+Silver and governed Gold DataFrames. Its four tests cover the committed 31 physical
+rows, 30 unique events and one replay; coverage and categories; duration, downtime,
+parts and maintenance-cost totals; and replaying every row with later delivery
+lineage without changing Silver business rows or Gold operational totals.
+
+The cost comparison applies to the current small fixture amounts. It is not a
+general equality guarantee between the profiler's exact Decimal arithmetic and
+Spark double-valued columns. The synthetic lineage represents delivery metadata,
+not an Auto Loader run. No table or checkpoint is written by these tests.
+
+The Spark workflow watches the fixture paths and the reconciliation dependencies
+for both pull requests and main pushes. Its existing two-CPU, 4 GiB and twenty-minute
+bounds remain. A source artifact can be published by its separate CI job even if
+Spark fails; review the exact candidate's Spark result independently. The source
+snapshot's `spark_runtime` field remains `not_run` because its builder does not
+execute Spark. Runtime results belong to the actual workflow log, not modified
+source-evidence flags.
+
 ## Warehouse evidence
 
 `tests_runtime/test_spark_warehouse_runtime.py` executes dimensional warehouse construction and the aggregate/referential audit over bounded Gold fixtures. It proves:
@@ -55,7 +77,7 @@ The replay scenario uses a second immutable source-file name with a later ingest
 3. date, machine, client, site, model, and fault dimensions contain the expected members;
 4. fact grains are unique and required dimension keys are non-null;
 5. machine assignments are derived from both uptime and failure sources, so a failure-only machine is represented;
-6. conflicting client/site/model assignments for one machine fail construction rather than selecting an arbitrary row;
+6. conflicting client/site/model assignments for one machine on the same event date fail construction rather than selecting an arbitrary row; cross-date assignment history is tested separately;
 7. removing a dimension member produces an `unmatched_dimension_key` finding;
 8. duplicating a fact produces both grain and source-count findings;
 9. missing required warehouse datasets and empty uptime input fail closed.
@@ -86,7 +108,7 @@ The composite publication audit therefore covers source/fact count parity, dupli
 4. warehouse uptime and failure fact grains and required dimension keys are executable quality gates;
 5. uptime percentage bounds and status-minute partitioning are enforced independently of the publication audit;
 6. failure count, downtime, maintenance cost, and part quantity technical invariants are enforced;
-7. downtime above observed duration remains an explicit warning while the business definition is unresolved, rather than being silently accepted or incorrectly promoted to an approved hard rule;
+7. attributed downtime is independent of observed duration under `attributed_incident_v1`; reconciled load may exceed 100%, while negative measures and inconsistent materialized formulas remain errors;
 8. detailed and summary DataFrames share one `quality_run_id` and `checked_at`, with separate error and warning failure counts.
 
 `04_quality_checks.py` resolves every required medallion, Gold, dimension, and fact table, but does not let one missing table abort evidence construction. It appends `quality_check_results`, then appends `quality_metric_history`, and only afterwards fails the workflow when `failed_error_check_count` is non-zero. Detailed findings contain logical check names, status, severity, bounded detail, and counts; raw exception text and row values are not persisted.
@@ -103,8 +125,8 @@ Passing this workflow demonstrates executable Spark DataFrame semantics for the 
 - Databricks Asset Bundle rendering or deployment;
 - Lakeflow expectations or event-log publication;
 - cloud storage, cluster policy, cost, or recovery behaviour;
-- that the business meaning or acceptable bounds of downtime, observed duration, or percentages have been approved.
+- that the repository's business definition is suitable for another organisation's telemetry.
 
-Measure equality proves that the warehouse represents the current Gold semantics. It does not by itself prove that those semantics are the correct business definition; for example, the repository still permits downtime to exceed observed duration until that rule is decided.
+Measure equality proves that the warehouse represents the current Gold semantics. The repository uses `attributed_incident_v1`: attributed downtime may exceed observed duration by design, so downtime load is not an availability fraction. This local contract does not establish domain approval for a different application.
 
 Authenticated Databricks validation and plan evidence, followed by a deliberately approved development run, remain separate controls.

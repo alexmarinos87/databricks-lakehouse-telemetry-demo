@@ -4,11 +4,22 @@ on:
   pull_request:
     paths:
       - "src/lakehouse_demo/spark_*.py"
+      - "src/lakehouse_demo/azure_ingestion.py"
+      - "src/lakehouse_demo/dataset_profile.py"
+      - "src/lakehouse_demo/downtime_pipeline.py"
+      - "src/lakehouse_demo/fixture_discovery.py"
+      - "src/lakehouse_demo/machine_event_contract.py"
+      - "src/lakehouse_demo/repository_files.py"
+      - "data/sample_machine_events.csv"
+      - "data/increments/*.csv"
       - "notebooks/*.py"
       - "tests_runtime/**"
       - "Dockerfile.spark-ci"
       - "requirements-spark.txt"
       - "scripts/run_spark_runtime_checks.sh"
+      - "scripts/run_spark_runtime_checks.py"
+      - "tests/test_spark_runtime_runner.py"
+      - "scripts/run_acceptance_checks.sh"
       - ".github/workflows/spark-runtime.yml"
       - "docs/spark_runtime_evidence.md"
   push:
@@ -16,11 +27,22 @@ on:
       - main
     paths:
       - "src/lakehouse_demo/spark_*.py"
+      - "src/lakehouse_demo/azure_ingestion.py"
+      - "src/lakehouse_demo/dataset_profile.py"
+      - "src/lakehouse_demo/downtime_pipeline.py"
+      - "src/lakehouse_demo/fixture_discovery.py"
+      - "src/lakehouse_demo/machine_event_contract.py"
+      - "src/lakehouse_demo/repository_files.py"
+      - "data/sample_machine_events.csv"
+      - "data/increments/*.csv"
       - "notebooks/*.py"
       - "tests_runtime/**"
       - "Dockerfile.spark-ci"
       - "requirements-spark.txt"
       - "scripts/run_spark_runtime_checks.sh"
+      - "scripts/run_spark_runtime_checks.py"
+      - "tests/test_spark_runtime_runner.py"
+      - "scripts/run_acceptance_checks.sh"
       - ".github/workflows/spark-runtime.yml"
       - "docs/spark_runtime_evidence.md"
 
@@ -41,6 +63,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Run exact-index acceptance checks
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/run_acceptance_checks.sh
 
       - name: Build Spark runtime image
         run: docker build -f Dockerfile.spark-ci -t lakehouse-demo-spark-ci .
