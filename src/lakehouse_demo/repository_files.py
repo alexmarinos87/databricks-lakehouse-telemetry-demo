@@ -182,8 +182,11 @@ def read_repository_files(
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
 ) -> tuple[RepositoryFileSnapshot, ...]:
-    """Read unique repository files in deterministic relative-path order."""
-    if max_files <= 0 or max_file_bytes <= 0 or max_total_bytes <= 0:
+    """Read unique files in relative-path order with positive built-in int limits."""
+    if any(
+        type(limit) is not int or limit <= 0
+        for limit in (max_files, max_file_bytes, max_total_bytes)
+    ):
         raise RepositoryFileError("repository_read_limit_invalid")
     root = normalize_repository_root(repository_root)
 
