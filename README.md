@@ -58,6 +58,14 @@ scripts/run_local_checks.sh
 scripts/run_spark_runtime_checks.sh
 ```
 
+No workspace is needed to build a synthetic-data and reporting-source overview:
+
+```bash
+python3 scripts/build_portfolio_snapshot.py --output-dir .review/portfolio-snapshot
+```
+
+Use a new output directory; the [source-evidence quickstart](docs/portfolio_source_quickstart.md) explains the files, safe reruns, and CI provenance.
+
 To connect the project to a Databricks workspace and run its governed workflow, start with [`docs/setup.md`](docs/setup.md).
 
 ## Explore the evidence
