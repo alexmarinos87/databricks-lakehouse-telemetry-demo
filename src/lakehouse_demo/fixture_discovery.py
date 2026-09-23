@@ -45,6 +45,7 @@ def _identity(metadata: os.stat_result | None) -> tuple[int, ...] | None:
 def discover_increment_paths(root: Path) -> tuple[str, ...]:
     """List immediate CSV entries under a normalized, caller-controlled root.
 
+    Suffix matching is case-sensitive on every platform; names stay unchanged.
     Missing increments are optional; a present but unreadable or malformed
     directory is not. File type/content validation remains the reader's job.
     These checks detect observed drift, not hostile ancestor-rename attacks.
@@ -60,7 +61,7 @@ def discover_increment_paths(root: Path) -> tuple[str, ...]:
                 for count, entry in enumerate(entries, start=1):
                     if count > MAX_DIRECTORY_ENTRIES:
                         raise FixtureDiscoveryError("fixture_directory_entry_limit_exceeded")
-                    if fnmatch.fnmatch(entry.name, "*.csv"):
+                    if fnmatch.fnmatchcase(entry.name, "*.csv"):
                         if len(paths) >= MAX_INCREMENT_FILES:
                             raise FixtureDiscoveryError("repository_file_count_exceeded")
                         paths.append(f"data/increments/{entry.name}")
